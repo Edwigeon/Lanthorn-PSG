@@ -1,0 +1,15 @@
+{
+    "name": "Acid Bass",
+    "wave_type": "sawtooth",
+    "duty_cycle": 0.5,
+    "envelope": {
+        "attack": 0.01,
+        "decay": 0.2,
+        "sustain_level": 0.4,
+        "release": 0.1
+    },
+    "saturation": 2.5,
+    "portamento": {
+        "slide_time": 0.08
+    }
+}

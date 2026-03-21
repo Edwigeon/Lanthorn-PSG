@@ -1,0 +1,17 @@
+{
+    "name": "BazaarKick",
+    "wave_type": "sine",
+    "wave_type_2": "noise",
+    "mix": 0.1,
+    "saturation": 3.0,
+    "bit_depth": 12,
+    "envelope": {
+        "attack": 0.001,
+        "decay": 0.18,
+        "sustain_level": 0.0,
+        "release": 0.05
+    },
+    "portamento": {
+        "slide_time": 0.02
+    }
+}

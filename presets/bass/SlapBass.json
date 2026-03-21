@@ -1,0 +1,12 @@
+{
+    "name": "SlapBass",
+    "wave_type": "square",
+    "duty_cycle": 0.2,
+    "saturation": 1.2,
+    "envelope": {
+        "attack": 0.005,
+        "decay": 0.12,
+        "sustain_level": 0.1,
+        "release": 0.05
+    }
+}

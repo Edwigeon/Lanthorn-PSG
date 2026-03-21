@@ -1,0 +1,16 @@
+{
+    "name": "Dark Pad",
+    "wave_type": "sawtooth",
+    "wave_type_2": "noise",
+    "mix": 0.15,
+    "envelope": {
+        "attack": 1.0,
+        "decay": 0.0,
+        "sustain_level": 0.8,
+        "release": 1.2
+    },
+    "lfo": {
+        "tremolo_speed": 2.5,
+        "tremolo_depth": 0.3
+    }
+}

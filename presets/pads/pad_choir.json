@@ -1,0 +1,18 @@
+{
+    "name": "Choir Pad",
+    "wave_type": "sine",
+    "wave_type_2": "triangle",
+    "mix": 0.6,
+    "envelope": {
+        "attack": 0.5,
+        "decay": 0.2,
+        "sustain_level": 0.7,
+        "release": 1.0
+    },
+    "lfo": {
+        "vibrato_speed": 5.0,
+        "vibrato_depth": 0.15,
+        "tremolo_speed": 3.0,
+        "tremolo_depth": 0.2
+    }
+}

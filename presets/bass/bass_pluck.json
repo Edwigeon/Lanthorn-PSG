@@ -1,0 +1,11 @@
+{
+    "name": "Pluck Bass",
+    "wave_type": "triangle",
+    "envelope": {
+        "attack": 0.0,
+        "decay": 0.25,
+        "sustain_level": 0.1,
+        "release": 0.08
+    },
+    "saturation": 1.5
+}

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Lanthorn PSG
+Comment=Programmable Sound Generator — Tracker & SFX Painter
+Exec=LanthornPSG
+Icon=lanthorn_icon
+Type=Application
+Categories=AudioVideo;Audio;Music;
+Terminal=false
+StartupWMClass=lanthornpsg

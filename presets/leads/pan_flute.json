@@ -1,0 +1,17 @@
+{
+    "name": "PanFlute",
+    "wave_type": "triangle",
+    "wave_type_2": "sine",
+    "mix": 0.3,
+    "bit_depth": 16,
+    "envelope": {
+        "attack": 0.08,
+        "decay": 0.1,
+        "sustain_level": 0.7,
+        "release": 0.3
+    },
+    "lfo": {
+        "vibrato_speed": 5.2,
+        "vibrato_depth": 0.3
+    }
+}

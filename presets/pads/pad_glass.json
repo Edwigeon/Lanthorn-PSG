@@ -1,0 +1,16 @@
+{
+    "name": "Glass Pad",
+    "wave_type": "sine",
+    "wave_type_2": "sawtooth",
+    "mix": 0.2,
+    "envelope": {
+        "attack": 0.8,
+        "decay": 0.0,
+        "sustain_level": 1.0,
+        "release": 1.5
+    },
+    "echo": {
+        "delay_time": 0.35,
+        "feedback": 0.5
+    }
+}

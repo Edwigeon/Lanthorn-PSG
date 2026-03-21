@@ -1,0 +1,16 @@
+{
+    "name": "Saw Lead",
+    "wave_type": "sawtooth",
+    "wave_type_2": "sawtooth",
+    "mix": 0.5,
+    "envelope": {
+        "attack": 0.02,
+        "decay": 0.15,
+        "sustain_level": 0.7,
+        "release": 0.2
+    },
+    "lfo": {
+        "vibrato_speed": 5.0,
+        "vibrato_depth": 0.3
+    }
+}

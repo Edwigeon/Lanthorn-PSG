@@ -1,0 +1,23 @@
+{
+    "name": "Grit Bass",
+    "wave_type": "sawtooth",
+    "wave_type_2": "noise",
+    "mix": 0.2,
+    "saturation": 3.5,
+    "bit_depth": 8,
+    "envelope": {
+        "attack": 0.02,
+        "decay": 0.3,
+        "sustain_level": 0.5,
+        "release": 0.1
+    },
+    "lfo": {
+        "vibrato_speed": 0.0,
+        "vibrato_depth": 0.0,
+        "tremolo_speed": 0.0,
+        "tremolo_depth": 0.0
+    },
+    "portamento": {
+        "slide_time": 0.05
+    }
+}

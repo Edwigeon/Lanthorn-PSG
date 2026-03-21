@@ -1,0 +1,19 @@
+{
+    "name": "Spooky Pad",
+    "wave_type": "triangle",
+    "envelope": {
+        "attack": 0.5,
+        "decay": 0.1,
+        "sustain_level": 1.0,
+        "release": 0.8
+    },
+    "lfo": {
+        "vibrato_speed": 0.0,
+        "vibrato_depth": 0.0,
+        "tremolo_speed": 4.0,
+        "tremolo_depth": 0.8
+    },
+    "portamento": {
+        "slide_time": 0.0
+    }
+}

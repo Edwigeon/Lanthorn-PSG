@@ -1,0 +1,16 @@
+{
+    "name": "Wobble Bass",
+    "wave_type": "square",
+    "duty_cycle": 0.25,
+    "envelope": {
+        "attack": 0.02,
+        "decay": 0.3,
+        "sustain_level": 0.6,
+        "release": 0.15
+    },
+    "saturation": 2.0,
+    "lfo": {
+        "tremolo_speed": 6.0,
+        "tremolo_depth": 0.6
+    }
+}

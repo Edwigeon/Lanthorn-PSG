@@ -1,0 +1,171 @@
+name: Build Lanthorn PSG
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  workflow_dispatch:  # Manual trigger from GitHub UI
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libportaudio2 ffmpeg
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Linux executable
+        run: pyinstaller lanthorn_psg.spec --clean
+
+      - name: Copy supporting files
+        run: |
+          cp -r presets/ dist/presets/
+          cp ENGINE_SPEC.md LICENSE lanthorn_icon.png dist/
+          mkdir -p dist/projects
+          cp Bazaar.csv Lanthorn.csv Iron_Waltz.csv dist/projects/
+
+      - name: Package Linux tarball
+        run: |
+          cd dist
+          tar -czf ../LanthornPSG-Linux.tar.gz .
+          cd ..
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LanthornPSG-Linux
+          path: LanthornPSG-Linux.tar.gz
+          retention-days: 30
+
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Download ffmpeg for bundling
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path tools\ffmpeg | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" `
+            -OutFile "tools\ffmpeg_dl.zip" -UseBasicParsing
+          Expand-Archive -Path "tools\ffmpeg_dl.zip" -DestinationPath "tools\ffmpeg_tmp" -Force
+          $binDir = Get-ChildItem "tools\ffmpeg_tmp" -Directory | Select-Object -First 1
+          Copy-Item "$($binDir.FullName)\bin\ffmpeg.exe"  "tools\ffmpeg\"
+          Copy-Item "$($binDir.FullName)\bin\ffprobe.exe" "tools\ffmpeg\"
+          Remove-Item -Recurse -Force "tools\ffmpeg_dl.zip","tools\ffmpeg_tmp"
+          Write-Host "ffmpeg ready: $(Get-Item tools\ffmpeg\ffmpeg.exe)"
+
+      - name: Build Windows executable
+        run: pyinstaller lanthorn_psg.spec --clean
+
+      - name: Copy supporting files
+        shell: cmd
+        run: |
+          xcopy /e /i /y presets dist\presets\
+          copy /y ENGINE_SPEC.md dist\
+          copy /y LICENSE dist\
+          copy /y lanthorn_icon.png dist\
+          copy /y lanthorn_icon.ico dist\
+          if not exist dist\projects mkdir dist\projects
+          copy /y Bazaar.csv dist\projects\
+          copy /y Lanthorn.csv dist\projects\
+          copy /y Iron_Waltz.csv dist\projects\
+          if exist tools\ffmpeg\ffmpeg.exe (
+            if not exist dist\ffmpeg mkdir dist\ffmpeg
+            copy /y tools\ffmpeg\ffmpeg.exe dist\ffmpeg\
+            copy /y tools\ffmpeg\ffprobe.exe dist\ffmpeg\
+          )
+
+      - name: Build NSIS installer
+        run: |
+          choco install nsis --no-progress -y
+          makensis lanthorn_installer.nsi
+
+      - name: Upload Windows executable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LanthornPSG-Windows-exe
+          path: dist/LanthornPSG.exe
+          retention-days: 30
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LanthornPSG-Windows-installer
+          path: LanthornPSG_Setup_0.3.exe
+          retention-days: 30
+
+  release:
+    needs: [build-linux, build-windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write  # Required to create GitHub Releases
+
+    steps:
+      - name: Download Linux build
+        uses: actions/download-artifact@v4
+        with:
+          name: LanthornPSG-Linux
+          path: release/
+
+      - name: Download Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: LanthornPSG-Windows-installer
+          path: release/
+
+      - name: Download Windows exe
+        uses: actions/download-artifact@v4
+        with:
+          name: LanthornPSG-Windows-exe
+          path: release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/LanthornPSG_Setup_0.3.exe
+            release/LanthornPSG.exe
+            release/LanthornPSG-Linux.tar.gz
+          body: |
+            ## Lanthorn PSG — Tracker & SFX Painter
+
+            ### Downloads
+            | File | Platform |
+            |---|---|
+            | `LanthornPSG_Setup_0.3.exe` | **Windows** — installer (recommended) |
+            | `LanthornPSG.exe` | **Windows** — portable standalone |
+            | `LanthornPSG-Linux.tar.gz` | **Linux** — standalone bundle |
+
+            All runtime dependencies (PortAudio, libsndfile, ffmpeg) are bundled — no separate install needed.

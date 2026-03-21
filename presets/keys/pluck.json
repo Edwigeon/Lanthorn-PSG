@@ -1,0 +1,10 @@
+{
+    "name": "Pluck",
+    "wave_type": "triangle",
+    "envelope": {
+        "attack": 0.0,
+        "decay": 0.2,
+        "sustain_level": 0.0,
+        "release": 0.1
+    }
+}

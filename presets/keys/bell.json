@@ -1,0 +1,14 @@
+{
+    "name": "Bell",
+    "wave_type": "sine",
+    "envelope": {
+        "attack": 0.0,
+        "decay": 0.8,
+        "sustain_level": 0.0,
+        "release": 0.5
+    },
+    "echo": {
+        "delay_time": 0.2,
+        "feedback": 0.4
+    }
+}

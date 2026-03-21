@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.pyo
+
+# Virtual environment
+venv/
+.env/
+env/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec.bak
+
+# Downloaded build tools (ffmpeg fetched by build.bat)
+tools/
+
+# NSIS installer output
+LanthornPSG_Setup_*.exe
+
+# Exported audio (user-generated)
+*.wav
+*.mp3
+*.ogg
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Gemini / AI assistant artifacts
+.gemini/

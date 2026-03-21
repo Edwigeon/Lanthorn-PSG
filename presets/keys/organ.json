@@ -1,0 +1,17 @@
+{
+    "name": "Organ",
+    "wave_type": "square",
+    "wave_type_2": "sine",
+    "mix": 0.4,
+    "duty_cycle": 0.5,
+    "envelope": {
+        "attack": 0.02,
+        "decay": 0.0,
+        "sustain_level": 1.0,
+        "release": 0.05
+    },
+    "lfo": {
+        "tremolo_speed": 5.5,
+        "tremolo_depth": 0.15
+    }
+}

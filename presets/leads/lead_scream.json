@@ -1,0 +1,16 @@
+{
+    "name": "Scream Lead",
+    "wave_type": "square",
+    "duty_cycle": 0.1,
+    "envelope": {
+        "attack": 0.05,
+        "decay": 0.1,
+        "sustain_level": 0.9,
+        "release": 0.3
+    },
+    "saturation": 3.0,
+    "lfo": {
+        "vibrato_speed": 6.0,
+        "vibrato_depth": 0.4
+    }
+}

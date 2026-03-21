@@ -1,0 +1,12 @@
+{
+    "name": "Sub Bass",
+    "wave_type": "sine",
+    "wave_type_2": "triangle",
+    "mix": 0.3,
+    "envelope": {
+        "attack": 0.01,
+        "decay": 0.1,
+        "sustain_level": 0.8,
+        "release": 0.15
+    }
+}

@@ -1,0 +1,15 @@
+{
+    "name": "Chip Lead",
+    "wave_type": "square",
+    "duty_cycle": 0.5,
+    "envelope": {
+        "attack": 0.0,
+        "decay": 0.05,
+        "sustain_level": 0.8,
+        "release": 0.1
+    },
+    "lfo": {
+        "vibrato_speed": 4.5,
+        "vibrato_depth": 0.2
+    }
+}

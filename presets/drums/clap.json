@@ -1,0 +1,15 @@
+{
+    "name": "Clap",
+    "wave_type": "noise",
+    "envelope": {
+        "attack": 0.0,
+        "decay": 0.18,
+        "sustain_level": 0.0,
+        "release": 0.12
+    },
+    "saturation": 1.8,
+    "echo": {
+        "delay_time": 0.03,
+        "feedback": 0.3
+    }
+}

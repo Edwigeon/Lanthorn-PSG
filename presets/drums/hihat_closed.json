@@ -1,0 +1,11 @@
+{
+    "name": "HiHat Closed",
+    "wave_type": "noise",
+    "envelope": {
+        "attack": 0.0,
+        "decay": 0.04,
+        "sustain_level": 0.0,
+        "release": 0.02
+    },
+    "bit_depth": 6
+}

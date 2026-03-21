@@ -1,0 +1,16 @@
+{
+    "name": "String",
+    "wave_type": "sawtooth",
+    "wave_type_2": "triangle",
+    "mix": 0.3,
+    "envelope": {
+        "attack": 0.3,
+        "decay": 0.1,
+        "sustain_level": 0.6,
+        "release": 0.4
+    },
+    "lfo": {
+        "vibrato_speed": 4.0,
+        "vibrato_depth": 0.25
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "name": "BazaarSnare",
+    "wave_type": "noise",
+    "wave_type_2": "triangle",
+    "mix": 0.4,
+    "envelope": {
+        "attack": 0.001,
+        "decay": 0.12,
+        "sustain_level": 0.0,
+        "release": 0.05
+    }
+}

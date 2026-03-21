@@ -1,0 +1,11 @@
+{
+    "name": "HiHat Open",
+    "wave_type": "noise",
+    "envelope": {
+        "attack": 0.0,
+        "decay": 0.15,
+        "sustain_level": 0.0,
+        "release": 0.08
+    },
+    "bit_depth": 8
+}

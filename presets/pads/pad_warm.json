@@ -1,0 +1,16 @@
+{
+    "name": "Warm Pad",
+    "wave_type": "triangle",
+    "wave_type_2": "sine",
+    "mix": 0.5,
+    "envelope": {
+        "attack": 0.6,
+        "decay": 0.0,
+        "sustain_level": 1.0,
+        "release": 0.8
+    },
+    "lfo": {
+        "vibrato_speed": 3.0,
+        "vibrato_depth": 0.2
+    }
+}
