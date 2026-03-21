@@ -48,12 +48,33 @@ python main.py
 
 ## Building a Standalone Executable
 
-### Linux
+### Linux (Ubuntu)
 
 ```bash
+# Install system dependencies
+sudo apt install python3 python3-venv python3-pip libasound2-dev libportaudio2
+
+# Clone and build
+git clone https://github.com/Edwigeon/Lanthorn-PSG.git
+cd Lanthorn-PSG
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 chmod +x build.sh
 ./build.sh
-# Output: dist/LanthornPSG
+```
+
+`build.sh` will:
+1. Build a standalone binary via PyInstaller → `dist/LanthornPSG`
+2. Bundle presets, demo projects, icon, and docs into `dist/`
+3. Install a `.desktop` entry + icon for your app launcher
+
+```bash
+# Run directly
+./dist/LanthornPSG
+
+# Or run from source
+python main.py
 ```
 
 ### Windows
