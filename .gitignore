@@ -17,8 +17,8 @@ dist/
 # Downloaded build tools (ffmpeg fetched by build.bat)
 tools/
 
-# NSIS installer output
-LanthornPSG_Setup_*.exe
+# NSIS installer output — tracked via Git LFS
+# LanthornPSG_Setup_*.exe
 
 # Exported audio (user-generated)
 *.wav
