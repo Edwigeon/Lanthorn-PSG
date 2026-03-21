@@ -349,20 +349,21 @@ real-time modulation effects like vibrato and portamento.
 ================================================================================
 
   FX commands are stored as strings in FX1/FX2 columns: "CMD XX"
-  XX is a decimal byte (0-255). Some commands split into high/low nibbles.
+  XX is a decimal value (0-255). For dual-parameter commands, this value is 
+  split into high/low values mathematically (value >> 4 and value & 0xF).
 
   ┌─────┬──────────────┬──────────────────────────────────────────────────┐
   │ CMD │ Name         │ Parameters                                      │
   ├─────┼──────────────┼──────────────────────────────────────────────────┤
-  │ VIB │ Vibrato      │ Hi nibble = speed (0-15 → 1-16 Hz)             │
-  │     │              │ Lo nibble = depth (0-15 → 0-1 semitone)         │
+  │ VIB │ Vibrato      │ Hi parameter = speed (0-15 → 1-16 Hz)             │
+  │     │              │ Lo parameter = depth (0-15 → 0-1 semitone)         │
   │     │              │ Applied as amplitude modulation on the wave      │
   ├─────┼──────────────┼──────────────────────────────────────────────────┤
-  │ TRM │ Tremolo      │ Hi nibble = speed, Lo nibble = depth            │
+  │ TRM │ Tremolo      │ Hi parameter = speed, Lo parameter = depth             │
   │     │              │ Calls Modifiers.apply_tremolo()                  │
   ├─────┼──────────────┼──────────────────────────────────────────────────┤
-  │ ECH │ Echo         │ Hi nibble = delay (× 50ms, range 0-750ms)       │
-  │     │              │ Lo nibble = feedback (0-15 → 0.0-0.9)           │
+  │ ECH │ Echo         │ Hi parameter = delay (× 50ms, range 0-750ms)       │
+  │     │              │ Lo parameter = feedback (0-15 → 0.0-0.9)           │
   │     │              │ Calls Modifiers.apply_echo()                     │
   ├─────┼──────────────┼──────────────────────────────────────────────────┤
   │ VOL │ Volume       │ Full byte 0-255 → 0.0-1.0 amplitude scale       │
@@ -437,12 +438,11 @@ real-time modulation effects like vibrato and portamento.
     Instead of semitone offsets, it cycles through the chord's own frequencies.
 
     Encoding: ARP XY
-      X (high nibble) = Pattern:
-        0 = Up         (low to high: C → E → G → C → E → G ...)
-        1 = Down       (high to low: G → E → C → G → E → C ...)
-        2 = Ping-Pong  (up then down: C → E → G → E → C → E ...)
-        3 = Random     (deterministic shuffle seeded by note sum)
-      Y (low nibble) = Subdivision count (0 defaults to len(chord) × 2)
+      X (high parameter) = Pattern:
+        0 = Up, 1 = Down, 2 = Up-Down, 3 = Random Shuffle
+        (Calculated as value >> 4)
+
+      Y (low parameter) = Subdivision count (0 defaults to len(chord) × 2)
 
     Each subdivision generates a fresh oscillator segment at that frequency,
     concatenated into the final waveform to replace the static chord.
@@ -852,8 +852,8 @@ real-time modulation effects like vibrato and portamento.
   ├─────┼──────┼────────────────────────────────────────────────────┤
   │  0  │ Note │ Note name or chord: C-4, G#5, OFF, C-4,E-4,G-4   │
   │  1  │ Inst │ Instrument name from bank (overrides track patch)  │
-  │  2  │ Vel  │ Velocity in hex: 00-FF (maps to 0.0-1.0)          │
-  │  3  │ Gate │ Gate length in hex steps (how long note sustains)  │
+  │  2  │ Vel  │ Velocity in decimal: 0-255 (maps to 0.0-1.0)          │
+  │  3  │ Gate │ Gate length in decimal steps (how long note sustains)  │
   │  4  │ FX1  │ FX command slot 1 (e.g., VIB 3A)                  │
   │  5  │ FX2  │ FX command slot 2 (e.g., ECH 35)                  │
   │  6  │ Spc  │ Visual spacer (1px, non-editable, dark)            │
@@ -910,21 +910,21 @@ real-time modulation effects like vibrato and portamento.
   14.1  PAN FX ENCODING
   ══════════════════════════════════════════════════════════════════
 
-  PAN is an FX column command with a single hex byte:
+  PAN is an FX column command with a single decimal value:
 
-    PAN XX    where XX = 00-FF
+    PAN X    where X = 0-255
 
-    ┌──────┬──────────────┬─────────────────────┐
-    │ Hex  │ Float Value  │ Position            │
-    ├──────┼──────────────┼─────────────────────┤
-    │  00  │  -1.0        │ Hard Left           │
-    │  40  │  -0.5        │ Mid-Left            │
-    │  80  │   0.0        │ Center (default)    │
-    │  C0  │  +0.5        │ Mid-Right           │
-    │  FF  │  +1.0        │ Hard Right          │
-    └──────┴──────────────┴─────────────────────┘
+    ┌─────────┬──────────────┬─────────────────────┐
+    │ Decimal │ Float Value  │ Position            │
+    ├─────────┼──────────────┼─────────────────────┤
+    │    0    │  -1.0        │ Hard Left           │
+    │   64    │  -0.5        │ Mid-Left            │
+    │  128    │   0.0        │ Center (default)    │
+    │  192    │  +0.5        │ Mid-Right           │
+    │  255    │  +1.0        │ Hard Right          │
+    └─────────┴──────────────┴─────────────────────┘
 
-    Conversion: pan_float = (hex_val / 127.5) - 1.0
+    Conversion: pan_float = (dec_val / 127.5) - 1.0
 
   Context menu presets (right-click FX cell → Dynamics → Pan):
     Hard Left, Left, Center, Right, Hard Right, Custom slider.
@@ -945,7 +945,7 @@ real-time modulation effects like vibrato and portamento.
 
     2. EVENT SCAN — After building the full event sequence:
        For each event with fx1 or fx2 starting with "PAN ":
-         - Extract hex value → convert to float
+         - Extract decimal value → convert to float
          - Add to pan_keyframes list
          - DELETE the PAN FX from the event dict
            (prevents engine's _apply_fx_to_event from seeing it)
@@ -1256,7 +1256,7 @@ real-time modulation effects like vibrato and portamento.
     3. Choose what to change:
        - 🔊 Set Velocity on all → pick preset → every kick gets that velocity
        - ⏱  Set Gate on all → pick preset → every kick gets that gate length
-       - ✨ Set FX1 on all → pick an FX command → enter hex param → applied
+       - ✨ Set FX1 on all → pick an FX command → enter decimal param → applied
        - 🗑  Clear FX1 on all → clears FX1 on every kick row to "--"
 
   IMPLEMENTATION:

@@ -90,8 +90,8 @@ class Sequencer:
             try:
                 # Parse decimal parameter
                 p_full = int(param)
-                p1 = (p_full >> 4) & 0xF  # high nibble for dual-param FX
-                p2 = p_full & 0xF          # low nibble for dual-param FX
+                p1 = (p_full >> 4) & 0xF  # high parameter for dual-param FX
+                p2 = p_full & 0xF          # low parameter for dual-param FX
             except ValueError:
                 continue
 
@@ -137,7 +137,7 @@ class Sequencer:
                 is_chord = isinstance(raw_notes, list) and len(raw_notes) > 1
 
                 if is_chord:
-                    # Chord ARP: high nibble = pattern, low nibble = cycle subdivisions
+                    # Chord ARP: high parameter = pattern, low parameter = cycle subdivisions
                     # Patterns: 0=Up, 1=Down, 2=Up-Down, 3=Random
                     pattern = p1  # 0-3
                     divisions = max(2, p2 if p2 > 0 else len(raw_notes) * 2)

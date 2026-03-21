@@ -525,8 +525,8 @@ class TrackerContextMenu:
                     fx_sub.addSeparator()
 
                 # Quick presets
-                for preset_label, hex_val in presets:
-                    fx_str = f"{prefix} {hex_val}"
+                for preset_label, dec_val in presets:
+                    fx_str = f"{prefix} {dec_val}"
                     action = fx_sub.addAction(f"  {preset_label}  ({fx_str})")
                     fs = fx_str
                     ct = fx_col_type
@@ -550,8 +550,8 @@ class TrackerContextMenu:
         """Shows a smart FX parameter dialog with per-type slider controls."""
         from PyQt6.QtWidgets import QSpinBox
 
-        # Define which FX use dual nibbles and their labels
-        DUAL_NIBBLE_FX = {
+        # Define which FX use dual parameters and their labels (stored bitwise using >>4 and &0xF)
+        DUAL_PARAM_FX = {
             "ARP": ("Pattern / +X semi", "Subdivisions / +Y semi"),
             "VIB": ("Speed (0=off, F=fast)", "Depth (0=none, F=deep)"),
             "TRM": ("Speed (0=off, F=fast)", "Depth (0=none, F=deep)"),
@@ -572,7 +572,7 @@ class TrackerContextMenu:
             "SAT": "Saturation  (0=Clean > 255=Heavy Fuzz)",
         }
 
-        is_dual = prefix in DUAL_NIBBLE_FX
+        is_dual = prefix in DUAL_PARAM_FX
 
         dlg = QDialog(table_widget)
         dlg.setWindowTitle(f"{prefix} — {description}")
@@ -598,9 +598,9 @@ class TrackerContextMenu:
             "font-family: 'Courier New'; font-size: 16px; color: #00ff88; font-weight: bold;")
 
         if is_dual:
-            hi_label_text, lo_label_text = DUAL_NIBBLE_FX[prefix]
+            hi_label_text, lo_label_text = DUAL_PARAM_FX[prefix]
 
-            # --- High nibble ---
+            # --- High parameter ---
             hi_row = QHBoxLayout()
             hi_lbl = QLabel(f"Hi: {hi_label_text}")
             hi_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
@@ -614,7 +614,7 @@ class TrackerContextMenu:
             hi_row.addWidget(hi_spin, 1)
             layout.addLayout(hi_row)
 
-            # --- Low nibble ---
+            # --- Low parameter ---
             lo_row = QHBoxLayout()
             lo_lbl = QLabel(f"Lo: {lo_label_text}")
             lo_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
