@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QBrush, QPen, QKeySequence, QShortcut, QUndoStack, QUndoCommand
 import pyqtgraph as pg
+import time
 from .context_menu import TrackerContextMenu
 
 class TrackerTableWidget(QTableWidget):
@@ -1285,14 +1286,25 @@ class TrackerWidget(QWidget):
         self._play_seq_idx = 0
         self._play_pat_row = 0
         self._play_global_step = 0
-        self.table.selectRow(0)
+        self._play_start_time = time.perf_counter()
+        self._play_pause_offset = 0.0
+        
+        # Calculate timestamps for each step in the sequence
+        self._step_times = []
+        current_time = 0.0
+        for pat_id, p_len in self._play_pattern_steps:
+            p_bpm, p_lpb, _, _, _ = self._get_pattern_timing(pat_id)
+            step_dur = seq.calculate_step_time(p_bpm, p_lpb)
+            for _ in range(p_len):
+                self._step_times.append({
+                    "time": current_time,
+                    "pat_id": pat_id,
+                    "row": _
+                })
+                current_time += step_dur
+        self._total_duration = current_time
 
-        from PyQt6.QtCore import QTimer
-        self.playhead_timer = QTimer(self)
-        self.playhead_timer.timeout.connect(self.playhead_tick)
-        step_duration_ms = int(seq.calculate_step_time(bpm, lpb) * 1000)
-        self._step_duration_ms = step_duration_ms
-        self.playhead_timer.start(step_duration_ms)
+        self.table.selectRow(0)
         self._start_viz_timer()
 
     def play_solo_track(self, track_idx=None):
@@ -1354,14 +1366,22 @@ class TrackerWidget(QWidget):
         self._play_seq_idx = 0
         self._play_pat_row = 0
         self._play_global_step = 0
-        self.table.selectRow(0)
+        self._play_start_time = time.perf_counter()
+        self._play_pause_offset = 0.0
+        
+        self._step_times = []
+        current_time = 0.0
+        step_dur = seq.calculate_step_time(bpm, lpb)
+        for _ in range(pat_len):
+            self._step_times.append({
+                "time": current_time,
+                "pat_id": self.active_pattern,
+                "row": _
+            })
+            current_time += step_dur
+        self._total_duration = current_time
 
-        from PyQt6.QtCore import QTimer
-        self.playhead_timer = QTimer(self)
-        self.playhead_timer.timeout.connect(self.playhead_tick)
-        step_duration_ms = int(seq.calculate_step_time(bpm, lpb) * 1000)
-        self._step_duration_ms = step_duration_ms
-        self.playhead_timer.start(step_duration_ms)
+        self.table.selectRow(0)
         self._start_viz_timer()
 
     def play_sequence(self):
@@ -1426,86 +1446,92 @@ class TrackerWidget(QWidget):
         except Exception as e:
             print("Audio Playback Error:", e)
 
-        # Start Playhead Timer with nested counters
         if hasattr(self, 'playhead_timer'):
             self.playhead_timer.stop()
-        self._play_seq_idx = 0      # Which order list entry
-        self._play_pat_row = 0      # Which row inside that pattern
-        self._play_global_step = 0  # Global step for visualizer
+        self._play_seq_idx = 0
+        self._play_pat_row = 0
+        self._play_global_step = 0
+        self._play_start_time = time.perf_counter()
+        self._play_pause_offset = 0.0
 
-        # Show the first pattern in the order list
+        # Precalculate exact timestamps for every step in the entire song
+        self._step_times = []
+        current_time = 0.0
+        for pat_id, p_len, p_bpm, p_lpb in self._play_pattern_steps:
+            step_dur = seq.calculate_step_time(p_bpm, p_lpb)
+            for _ in range(p_len):
+                self._step_times.append({
+                    "time": current_time,
+                    "pat_id": pat_id,
+                    "row": _
+                })
+                current_time += step_dur
+        self._total_duration = current_time
+
         first_pat = self.order_list[0]
         if first_pat != self.active_pattern:
             self.switch_pattern(first_pat)
         self.table.selectRow(0)
 
-        from PyQt6.QtCore import QTimer
-        self.playhead_timer = QTimer(self)
-        self.playhead_timer.timeout.connect(self.playhead_tick)
-        # Use first pattern's timing for initial step duration
-        first_bpm, first_lpb, _, _, _ = self._get_pattern_timing(self.order_list[0])
-        step_duration_ms = int(seq.calculate_step_time(first_bpm, first_lpb) * 1000)
-        self._step_duration_ms = step_duration_ms
-        self.playhead_timer.start(step_duration_ms)
         self._start_viz_timer()
 
     def playhead_tick(self):
-        self._play_pat_row += 1
-        self._play_global_step += 1
-
-        # Get current pattern info
-        if self._play_seq_idx >= len(self._play_pattern_steps):
-            self.stop_sequence()
-            return
-
-        entry = self._play_pattern_steps[self._play_seq_idx]
-        pat_id, pat_len = entry[0], entry[1]
-
-        if self._play_pat_row >= pat_len:
-            # Advance to next pattern in order list
-            self._play_seq_idx += 1
-            self._play_pat_row = 0
-
-            if self._play_seq_idx >= len(self._play_pattern_steps):
-                # Song finished — check loop
-                main_win = self.window()
-                if hasattr(main_win, 'btn_loop') and main_win.btn_loop.isChecked():
-                    self.play_sequence()  # Restart from beginning
-                else:
-                    self.stop_sequence()
-                return
-
-            # Switch to next pattern and update timer if BPM changed
-            next_entry = self._play_pattern_steps[self._play_seq_idx]
-            next_pat_id = next_entry[0]
-            if len(next_entry) >= 4:
-                from engine.playback import Sequencer
-                seq = Sequencer(44100)
-                new_ms = int(seq.calculate_step_time(next_entry[2], next_entry[3]) * 1000)
-                if new_ms != self._step_duration_ms:
-                    self._step_duration_ms = new_ms
-                    self.playhead_timer.setInterval(new_ms)
-            if next_pat_id != self.active_pattern:
-                self.switch_pattern(next_pat_id)
-            self.table.selectRow(0)
-            self.refresh_order_display()
-        else:
-            offset = getattr(self, '_play_from_offset', 0)
-            self.table.selectRow(self._play_pat_row + offset)
-
-        self._update_viz()
+        # Obsolete: replaced by precise perf_counter logic in _update_viz
+        pass
 
     def _update_viz(self):
-        """Feeds the oscilloscope with audio centered on the playhead, faded at edges."""
+        """Master Playhead Tick & Oscilloscope Update (runs at ~55fps)."""
+        if getattr(self, '_is_playing', False) and hasattr(self, '_play_start_time'):
+            # 1. Update Playhead based on exact elapsed audio time
+            elapsed = time.perf_counter() - self._play_start_time - self._play_pause_offset
+            
+            # Check for song end
+            if elapsed >= getattr(self, '_total_duration', 0.0):
+                main_win = self.window()
+                if hasattr(main_win, 'btn_loop') and main_win.btn_loop.isChecked():
+                    self.play_sequence()
+                    return
+                else:
+                    self.stop_sequence()
+                    return
+
+            # Find current step via binary search on precalculated step times
+            import bisect
+            times = [s["time"] for s in self._step_times]
+            idx = bisect.bisect_right(times, elapsed) - 1
+            if idx >= 0 and idx < len(self._step_times):
+                step_info = self._step_times[idx]
+                if self._play_global_step != idx:
+                    self._play_global_step = idx
+                    self._play_pat_row = step_info["row"]
+                    pat_id = step_info["pat_id"]
+                    
+                    if pat_id != self.active_pattern:
+                        self.switch_pattern(pat_id)
+                        self.refresh_order_display()
+                    
+                    offset = getattr(self, '_play_from_offset', 0)
+                    self.table.selectRow(self._play_pat_row + offset)
+
+        # 2. Update Oscilloscope Window
         if not hasattr(self, '_rendered_audio') or self._rendered_audio is None:
             return
         import numpy as np
         audio = self._rendered_audio
         total = len(audio)
         total_steps = getattr(self, '_total_song_steps', self.total_steps)
-        samples_per_step = total // max(total_steps, 1)
+        if total_steps == 0: total_steps = 1
+        samples_per_step = total // total_steps
         global_step = getattr(self, '_play_global_step', 0)
-        center = global_step * samples_per_step
+        
+        # Smooth interpolation between discrete steps based on exact elapsed time
+        if getattr(self, '_is_playing', False):
+            elapsed = time.perf_counter() - self._play_start_time - self._play_pause_offset
+            exact_sample = int(elapsed * 44100)
+            center = min(max(0, exact_sample), total - 1)
+        else:
+            center = global_step * samples_per_step
+            
         half_window = 1200
         start = max(0, center - half_window)
         end = min(total, center + half_window)
@@ -1547,14 +1573,17 @@ class TrackerWidget(QWidget):
             self._viz_timer.stop()
 
     def pause_sequence(self):
-        """Pauses the playhead timer without resetting position."""
-        if hasattr(self, 'playhead_timer'):
-            self.playhead_timer.stop()
+        """Pauses the playhead tracing by halting elapsed time tracking."""
+        if getattr(self, '_is_playing', False):
+            self._is_playing = False
+            self._pause_timestamp = time.perf_counter()
 
     def resume_sequence(self):
-        """Resumes the playhead timer from the paused position."""
-        if hasattr(self, 'playhead_timer') and hasattr(self, '_step_duration_ms'):
-            self.playhead_timer.start(self._step_duration_ms)
+        """Resumes the playhead tracking, offsetting timestamps."""
+        if not getattr(self, '_is_playing', False) and hasattr(self, '_pause_timestamp'):
+            self._is_playing = True
+            paused_duration = time.perf_counter() - self._pause_timestamp
+            self._play_pause_offset += paused_duration
             
     def stop_sequence(self):
         self._is_playing = False
@@ -1625,10 +1654,10 @@ class TrackerWidget(QWidget):
             self._rendered_audio = trimmed_audio[:, 0]
         else:
             self._rendered_audio = trimmed_audio
+            
         self._total_song_steps = pat_len - start_row
-        self._play_pattern_steps = [(self.active_pattern, pat_len - start_row)]
+        self._play_pattern_steps = [(self.active_pattern, pat_len)]
         self._is_playing = True
-        self._play_from_offset = start_row  # track offset for playhead
 
         import sounddevice as sd
         try:
@@ -1638,15 +1667,25 @@ class TrackerWidget(QWidget):
 
         if hasattr(self, 'playhead_timer'):
             self.playhead_timer.stop()
+            
         self._play_seq_idx = 0
-        self._play_pat_row = 0
+        self._play_pat_row = start_row
         self._play_global_step = 0
-        self.table.selectRow(start_row)
+        self._play_start_time = time.perf_counter()
+        self._play_pause_offset = 0.0
+        self._play_from_offset = start_row
 
-        from PyQt6.QtCore import QTimer
-        self.playhead_timer = QTimer(self)
-        self.playhead_timer.timeout.connect(self.playhead_tick)
-        step_duration_ms = int(step_duration * 1000)
-        self._step_duration_ms = step_duration_ms
-        self.playhead_timer.start(step_duration_ms)
+        # Calculate exact timestamps for the remaining steps in the pattern
+        self._step_times = []
+        current_time = 0.0
+        for r in range(start_row, pat_len):
+            self._step_times.append({
+                "time": current_time,
+                "pat_id": self.active_pattern,
+                "row": r
+            })
+            current_time += step_duration
+        self._total_duration = current_time
+
+        self.table.selectRow(start_row)
         self._start_viz_timer()
