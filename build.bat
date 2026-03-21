@@ -35,8 +35,16 @@ if not exist "tools\ffmpeg\ffmpeg.exe" (
 
     if not exist tools mkdir tools
 
-    REM Download using PowerShell (single line, no ^ continuation)
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip' -OutFile 'tools\ffmpeg_dl.zip' -UseBasicParsing"
+    REM Try curl.exe first (built into Windows 10/11 - fast)
+    REM Fall back to PowerShell with progress bar suppressed (Invoke-WebRequest is very slow without this)
+    where curl.exe >nul 2>&1
+    if !errorlevel! == 0 (
+        echo  Downloading with curl...
+        curl.exe -L --progress-bar -o "tools\ffmpeg_dl.zip" "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+    ) else (
+        echo  Downloading with PowerShell...
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip' -OutFile 'tools\ffmpeg_dl.zip' -UseBasicParsing"
+    )
 
     if not exist "tools\ffmpeg_dl.zip" (
         echo  ERROR: Failed to download ffmpeg. Check your internet connection.
