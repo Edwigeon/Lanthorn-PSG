@@ -24,8 +24,8 @@ if errorlevel 1 (
 
 REM ---- Install Python dependencies ----
 echo  Installing Python dependencies...
-pip install -r requirements.txt
-pip install pyinstaller
+python -m pip install -r requirements.txt
+python -m pip install pyinstaller
 
 REM ---- Fetch ffmpeg for Windows (required by pydub for MP3 export) ----
 echo.
@@ -81,7 +81,7 @@ if not exist "tools\ffmpeg\ffmpeg.exe" (
 REM ---- Build with PyInstaller ----
 echo.
 echo  Building executable...
-pyinstaller lanthorn_psg.spec --clean
+python -m PyInstaller lanthorn_psg.spec --clean
 
 if not exist "dist\LanthornPSG.exe" (
     echo.
