@@ -19,6 +19,24 @@ Lanthorn PSG is a desktop application for composing tracker-style music and soun
 
 ---
 
+## Screenshots
+
+### Master Tracker
+Compose multi-track chiptune music using a robust step sequencer.
+![Master Tracker](assets/master_tracker.png)
+
+### Contextual Mouse Control & Smart Functions
+Speed up your workflow using intelligent right-click context menus. Quickly assign complex effects like major/minor arpeggios, or use **Smart Edit** to instantly apply FX, velocity, or gates across all instances of a specific instrument.
+
+![Context Menu: Pitch](assets/context_menu_pitch.png)
+![Smart Edit Functions](assets/smart_edit.png)
+
+### SFX Painter
+Draw retro sound effects directly on a grid!
+![SFX Painter](assets/sfx_painter.png)
+
+---
+
 ## Running from Source
 
 ### Requirements
