@@ -1,9 +1,9 @@
 ; ============================================================
-; Lanthorn PSG v0.3 — NSIS Windows Installer Script
+; Lanthorn PSG v0.3.2 — NSIS Windows Installer Script
 ; Requires: NSIS 3.x (https://nsis.sourceforge.io)
-; Run AFTER build.bat has produced the dist\ folder.
+; Run AFTER build.bat has produced the dist\LanthornPSG\ folder.
 ; Usage: makensis lanthorn_installer.nsi
-; Output: LanthornPSG_Setup_0.3.exe
+; Output: LanthornPSG_Setup_0.3.2.exe
 ; ============================================================
 
 Unicode True
@@ -13,7 +13,7 @@ Unicode True
 
 ; -------- Metadata --------
 !define APP_NAME        "Lanthorn PSG"
-!define APP_VERSION     "0.3"
+!define APP_VERSION     "0.3.2"
 !define APP_PUBLISHER   "Lanthorn PSG"
 !define APP_EXE         "LanthornPSG.exe"
 !define APP_ICON        "lanthorn_icon.ico"
@@ -41,7 +41,7 @@ BrandingText    "Lanthorn PSG v${APP_VERSION}"
 
 ; -------- Pages --------
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE    "dist\LICENSE"
+!insertmacro MUI_PAGE_LICENSE    "LICENSE"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -59,29 +59,22 @@ Section "Install" SecMain
     SetOutPath "$INSTDIR"
 
     ; Main executable
-    File "dist\${APP_EXE}"
+    File "dist\LanthornPSG\${APP_EXE}"
 
-    ; Data files alongside the executable
-    File "dist\lanthorn_icon.png"
-    File "dist\lanthorn_icon.ico"
-    File "dist\ENGINE_SPEC.md"
-    File "dist\LICENSE"
+    ; PyInstaller _internal folder (DLLs, presets, icons, data — must be next to exe)
+    SetOutPath "$INSTDIR\_internal"
+    File /r "dist\LanthornPSG\_internal\*.*"
 
-    ; Presets folder
-    SetOutPath "$INSTDIR\presets"
-    File /r "dist\presets\*.*"
-
-    ; Demo projects
+    ; Demo projects (copied by build.bat into dist\LanthornPSG\projects\)
     SetOutPath "$INSTDIR\projects"
-    File "dist\projects\Bazaar.csv"
-    File "dist\projects\Lanthorn.csv"
-    File "dist\projects\Iron_Waltz.csv"
+    File /nonfatal "dist\LanthornPSG\projects\Bazaar.csv"
+    File /nonfatal "dist\LanthornPSG\projects\Lanthorn.csv"
+    File /nonfatal "dist\LanthornPSG\projects\Iron_Waltz.csv"
 
-    ; Bundled ffmpeg binaries (required by pydub for MP3 export)
-    ; build.bat downloads these automatically into tools\ffmpeg\
+    ; Bundled ffmpeg (copied by build.bat into dist\LanthornPSG\ffmpeg\)
     SetOutPath "$INSTDIR\ffmpeg"
-    File /nonfatal "dist\ffmpeg\ffmpeg.exe"
-    File /nonfatal "dist\ffmpeg\ffprobe.exe"
+    File /nonfatal "dist\LanthornPSG\ffmpeg\ffmpeg.exe"
+    File /nonfatal "dist\LanthornPSG\ffmpeg\ffprobe.exe"
 
     ; Write registry keys for uninstaller / Add/Remove Programs
     SetOutPath "$INSTDIR"
@@ -129,10 +122,11 @@ Section "Uninstall"
     Delete "$INSTDIR\LICENSE"
     Delete "$INSTDIR\Uninstall.exe"
 
-    ; Remove presets, projects, and ffmpeg folders
+    ; Remove presets, projects, ffmpeg, and PyInstaller internals
     RMDir /r "$INSTDIR\presets"
     RMDir /r "$INSTDIR\projects"
     RMDir /r "$INSTDIR\ffmpeg"
+    RMDir /r "$INSTDIR\_internal"
     RMDir    "$INSTDIR"
 
     ; Remove shortcuts

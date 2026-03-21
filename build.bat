@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM Lanthorn PSG v0.3 - Windows Build Script
+REM Lanthorn PSG v0.3.2 - Windows Build Script
 REM Run this from the lanthorn_psg directory after installing Python.
 REM Automatically downloads ffmpeg and builds a Windows installer
 REM with NSIS if makensis is available.
@@ -83,7 +83,7 @@ echo.
 echo  Building executable...
 python -m PyInstaller lanthorn_psg.spec --clean
 
-if not exist "dist\LanthornPSG.exe" (
+if not exist "dist\LanthornPSG\LanthornPSG.exe" (
     echo.
     echo  BUILD FAILED - check errors above.
     pause
@@ -92,30 +92,24 @@ if not exist "dist\LanthornPSG.exe" (
 
 REM ---- Copy supporting files into dist\ ----
 echo.
-echo  Copying supporting files to dist\...
-xcopy /e /i /y presets dist\presets\ >nul
-copy /y ENGINE_SPEC.md  dist\ >nul
-copy /y LICENSE         dist\ >nul
-copy /y lanthorn_icon.png dist\ >nul
-copy /y lanthorn_icon.ico dist\ >nul
-
-if not exist dist\projects mkdir dist\projects
-copy /y Bazaar.csv     dist\projects\ >nul
-copy /y Lanthorn.csv   dist\projects\ >nul
-copy /y Iron_Waltz.csv dist\projects\ >nul
+echo  Copying supporting files into dist\LanthornPSG\...
+if not exist dist\LanthornPSG\projects mkdir dist\LanthornPSG\projects
+copy /y Bazaar.csv     dist\LanthornPSG\projects\ >nul
+copy /y Lanthorn.csv   dist\LanthornPSG\projects\ >nul
+copy /y Iron_Waltz.csv dist\LanthornPSG\projects\ >nul
 
 REM ---- Copy bundled ffmpeg into dist\ ----
 if exist "tools\ffmpeg\ffmpeg.exe" (
-    if not exist dist\ffmpeg mkdir dist\ffmpeg
-    copy /y tools\ffmpeg\ffmpeg.exe  dist\ffmpeg\ >nul
-    copy /y tools\ffmpeg\ffprobe.exe dist\ffmpeg\ >nul
-    echo  Bundled ffmpeg into dist\ffmpeg\
+    if not exist dist\LanthornPSG\ffmpeg mkdir dist\LanthornPSG\ffmpeg
+    copy /y tools\ffmpeg\ffmpeg.exe  dist\LanthornPSG\ffmpeg\ >nul
+    copy /y tools\ffmpeg\ffprobe.exe dist\LanthornPSG\ffmpeg\ >nul
+    echo  Bundled ffmpeg into dist\LanthornPSG\ffmpeg\
 )
 
 echo.
 echo  =============================================
 echo    BUILD COMPLETE!
-echo    Output: dist\LanthornPSG.exe
+echo    Output: dist\LanthornPSG\LanthornPSG.exe
 echo  =============================================
 echo.
 
@@ -187,10 +181,10 @@ if exist "tools\nsis\makensis.exe" (
 echo  Building installer with NSIS...
 "%MAKENSIS_CMD%" lanthorn_installer.nsi
 
-if exist "LanthornPSG_Setup_0.3.exe" (
+if exist "LanthornPSG_Setup_0.3.2.exe" (
     echo.
     echo  =============================================
-    echo    INSTALLER CREATED: LanthornPSG_Setup_0.3.exe
+    echo    INSTALLER CREATED: LanthornPSG_Setup_0.3.2.exe
     echo  =============================================
 ) else (
     echo  WARNING: NSIS ran but installer was not produced.

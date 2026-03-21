@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# Lanthorn PSG v0.3 — Build Script
+# Lanthorn PSG v0.3.2 — Build Script
 # Builds standalone executables for the current platform
 # ============================================================
 set -e

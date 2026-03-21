@@ -22,7 +22,7 @@ from export.wave_baker import WaveBaker
 class LanthornMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Lanthorn PSG v0.3 — Tracker & SFX Painter")
+        self.setWindowTitle("Lanthorn PSG v0.3.2 — Tracker & SFX Painter")
         self.resize(1280, 720)
 
         # Application icon — resolve for PyInstaller bundle, dist folder, or dev mode
@@ -247,47 +247,12 @@ class LanthornMainWindow(QMainWindow):
 
     def _show_about_dialog(self):
         """Minimal About dialog."""
-        dlg = QDialog(self)
-        dlg.setWindowTitle("About Lanthorn PSG")
-        dlg.setFixedSize(340, 240)
-        dlg.setStyleSheet("""
-            QDialog {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #1a1a2e, stop:1 #16213e);
-            }
-            QLabel { color: #ddd; }
-        """)
-        layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(30, 25, 30, 20)
-        layout.setSpacing(10)
-
-        # Title
-        title = QLabel("Lanthorn PSG")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("font-size: 22px; font-weight: bold; color: #ffcc00; letter-spacing: 2px;")
-        layout.addWidget(title)
-
-        # Description
-        desc = QLabel("Programmable Sound Generator\nTracker & SFX Painter")
-        desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        desc.setStyleSheet("font-size: 12px; color: #88aacc;")
-        layout.addWidget(desc)
-
-        # Version
-        ver = QLabel("Version 0.3")
-        ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ver.setStyleSheet("font-size: 13px; color: #aaccee; margin-top: 4px;")
-        layout.addWidget(ver)
-
-        layout.addStretch()
-
-        # Author & License
-        footer = QLabel("Created by Edwigeon\nOpen Source · MIT License")
-        footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        footer.setStyleSheet("font-size: 11px; color: #667788;")
-        layout.addWidget(footer)
-
-        dlg.exec()
+        QMessageBox.about(self, "About Lanthorn PSG",
+            "<h2>Lanthorn PSG</h2>"
+            "<p>Programmable Sound Generator<br>Tracker &amp; SFX Painter</p>"
+            "<p><b>Version 0.3.2</b></p>"
+            "<p>Created by Edwigeon<br>Open Source · MIT License</p>"
+        )
 
     def new_project(self):
         """Resets everything to a blank project."""
@@ -323,9 +288,19 @@ class LanthornMainWindow(QMainWindow):
         tracker.recolor_all_cells()
         tracker.refresh_order_display()
 
-        # Reset bank
-        self.workbench_container.bank_data.clear()
-        self.workbench_container._populate_bank_tree()
+        # Reset bank — reload factory presets from disk (instead of clearing)
+        workbench = self.workbench_container
+        workbench.bank_data.clear()
+        all_presets = workbench.preset_mgr.list_all()
+        for folder, preset_names in all_presets.items():
+            for preset_name in preset_names:
+                patch_data = workbench.preset_mgr.load_instrument(preset_name, folder=folder)
+                key = f"{folder}/{preset_name}" if folder else preset_name
+                display_name = patch_data.get("name", preset_name)
+                workbench.bank_data[key] = {"patch": patch_data, "display": display_name, "folder": folder}
+        if len(workbench.bank_data) == 0:
+            workbench.bank_data["INIT"] = {"patch": workbench.get_patch(), "display": "INIT", "folder": None}
+        workbench._populate_bank_tree()
 
         # Reset globals
         self.spin_bpm.setValue(120)

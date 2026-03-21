@@ -1612,7 +1612,7 @@ class TrackerWidget(QWidget):
             from PyQt6.QtCore import QTimer
             self._viz_timer = QTimer(self)
             self._viz_timer.timeout.connect(self._update_viz)
-        self._viz_timer.start(18)  # ~55fps
+        self._viz_timer.start(33)  # ~30fps — avoids stutter in frozen exe
 
     def _stop_viz_timer(self):
         """Stops the viz update timer."""

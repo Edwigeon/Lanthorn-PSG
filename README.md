@@ -89,7 +89,7 @@ build.bat
 1. Install all Python dependencies
 2. Automatically download a static **ffmpeg** build (needed for MP3 export)
 3. Run PyInstaller to produce `dist\LanthornPSG.exe`
-4. Automatically download **NSIS** (if not already installed) and create a Windows installer (`LanthornPSG_Setup_0.3.exe`)
+4. Automatically download **NSIS** (if not already installed) and create a Windows installer (`LanthornPSG_Setup_0.3.2.exe`)
 
 #### Windows Prerequisites
 
@@ -109,7 +109,7 @@ To build the installer separately (after `build.bat` has already produced `dist\
 makensis lanthorn_installer.nsi
 ```
 
-Output: `LanthornPSG_Setup_0.3.exe`
+Output: `LanthornPSG_Setup_0.3.2.exe`
 
 The installer:
 - Places the app in `Program Files\Lanthorn PSG`

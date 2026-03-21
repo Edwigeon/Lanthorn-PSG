@@ -9,7 +9,7 @@ from PyQt6.QtGui import QIcon
 from gui.main_window import LanthornMainWindow
 
 def main():
-    print("🕯️ Igniting Lanthorn PSG v0.3...")
+    print("🕯️ Igniting Lanthorn PSG v0.3.2...")
 
     # Force WM_CLASS on X11 before QApplication is created
     os.environ.setdefault("RESOURCE_NAME", "lanthornpsg")
