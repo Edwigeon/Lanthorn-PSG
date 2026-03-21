@@ -24,6 +24,10 @@ class Oscillator:
             # Use the provided dynamic frequency array (e.g., from Vibrato/Slide)
             # Ensure it matches the requested duration length
             freq_array = frequency[:total_samples]
+            # Ensure freq_array always matches total_samples length
+            if len(freq_array) < total_samples:
+                freq_array = np.pad(freq_array, (0, total_samples - len(freq_array)),
+                                    mode='edge')
             # Phase Integration (Crucial for smooth pitch modulation)
             phase = np.cumsum(freq_array) / self.sample_rate
 

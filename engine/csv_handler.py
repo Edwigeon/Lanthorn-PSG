@@ -144,9 +144,7 @@ class CsvHandler:
                     # Process based on state
                     if tag == "PATCH" and len(row_data) >= 3:
                         inst_name = row_data[1]
-                        # Skip if this patch already exists in the bank (e.g. from presets)
-                        if inst_name in bank_data:
-                            continue
+                        # Always load patches from the project file (overwrite if exists)
                         try:
                             bank_data[inst_name] = {
                                 "patch": json.loads(row_data[2]),

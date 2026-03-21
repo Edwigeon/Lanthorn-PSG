@@ -39,6 +39,7 @@ class LanthornMainWindow(QMainWindow):
                 break
         self._current_project_path = None  # For quick-save
         self._current_sfx_path = None       # For SFX quick-save
+        self._unsaved_changes = False       # Dirty flag for exit confirmation
         
         # Expanded Dark Theme to include the Menu Bar styling (enforcing Monospace)
         self.setStyleSheet("""
@@ -132,7 +133,6 @@ class LanthornMainWindow(QMainWindow):
 
     def global_pause(self):
         """Pauses or resumes audio playback and the playhead timer."""
-        import sounddevice as sd
         tracker = self.tracker_container if hasattr(self, 'tracker_container') else None
         
         if hasattr(self, '_is_paused') and self._is_paused:
@@ -142,13 +142,9 @@ class LanthornMainWindow(QMainWindow):
             if tracker and hasattr(tracker, 'resume_sequence'):
                 tracker.resume_sequence()
         else:
-            # Pause
+            # Pause — do NOT call sd.stop() as it destroys the stream
             self._is_paused = True
             self.statusBar().showMessage("Paused.")
-            try:
-                sd.stop()
-            except Exception:
-                pass
             if tracker and hasattr(tracker, 'pause_sequence'):
                 tracker.pause_sequence()
 
@@ -329,12 +325,14 @@ class LanthornMainWindow(QMainWindow):
 
         # Reset bank
         self.workbench_container.bank_data.clear()
-        self.workbench_container.refresh_bank_list()
+        self.workbench_container._populate_bank_tree()
 
         # Reset globals
         self.spin_bpm.setValue(120)
         self.spin_lpb.setValue(4)
         self._current_project_path = None
+        self._unsaved_changes = False
+        self._update_status_context()
         self.statusBar().showMessage("New project created.")
 
     def load_project(self):
@@ -345,6 +343,8 @@ class LanthornMainWindow(QMainWindow):
             success, msg = CsvHandler.load_project(filename, tracker, workbench.bank_data)
             if success:
                 self._current_project_path = filename
+                self._unsaved_changes = False
+                self._update_status_context()
                 self.statusBar().showMessage(f"Loaded: {filename}")
                 workbench._populate_bank_tree()
             else:
@@ -377,6 +377,8 @@ class LanthornMainWindow(QMainWindow):
         )
         if success:
             self._current_project_path = filename
+            self._unsaved_changes = False
+            self._update_status_context()
             self.statusBar().showMessage(f"Saved: {filename}")
         else:
             QMessageBox.critical(self, "Error Saving Project", msg)
@@ -390,6 +392,7 @@ class LanthornMainWindow(QMainWindow):
         settings = dlg.get_export_settings()
 
         try:
+            from PyQt6.QtWidgets import QProgressDialog, QApplication
             tracker = self.tracker_container
             tracker._save_pattern_timing()
             tracker.save_grid_to_pattern()
@@ -399,8 +402,22 @@ class LanthornMainWindow(QMainWindow):
             import numpy as np
             seq = Sequencer(44100)
 
+            total_patterns = len(tracker.order_list)
+            progress = QProgressDialog("Rendering audio...", "Cancel", 0, total_patterns + 1, self)
+            progress.setWindowTitle("Exporting")
+            progress.setMinimumDuration(0)
+            progress.setValue(0)
+            QApplication.processEvents()
+
             audio_blocks = []
-            for pat_id in tracker.order_list:
+            for i, pat_id in enumerate(tracker.order_list):
+                if progress.wasCanceled():
+                    self.statusBar().showMessage("Export cancelled.")
+                    return
+                progress.setValue(i)
+                progress.setLabelText(f"Rendering pattern {pat_id} ({i+1}/{total_patterns})...")
+                QApplication.processEvents()
+
                 pat_len = tracker.pattern_lengths.get(pat_id, 64)
                 pat_bpm, pat_lpb, _, _, _ = tracker._get_pattern_timing(pat_id)
                 grid = tracker.patterns.get(pat_id)
@@ -412,6 +429,10 @@ class LanthornMainWindow(QMainWindow):
                 tracks = tracker._build_tracks_from_grid(grid, pat_len, bank)
                 block = seq.render_pattern(pat_len, pat_bpm, tracks, apply_limiter=False)
                 audio_blocks.append(block)
+
+            progress.setLabelText("Writing file(s)...")
+            progress.setValue(total_patterns)
+            QApplication.processEvents()
 
             audio = np.concatenate(audio_blocks, axis=0)
 
@@ -425,6 +446,9 @@ class LanthornMainWindow(QMainWindow):
                 settings["filename"], audio,
                 settings["format"], settings["qualities"]
             )
+
+            progress.setValue(total_patterns + 1)
+            progress.close()
 
             file_list = "\n".join(f"• {os.path.basename(f)}" for f in exported)
             self.statusBar().showMessage(f"Exported {len(exported)} file(s)")
@@ -503,8 +527,13 @@ class LanthornMainWindow(QMainWindow):
         # Apply initial highlighting now that tracker is parented
         self.tracker_container.refresh_beat_highlighting()
 
+        # Mark project dirty when tracker cells are edited
+        self.tracker_container.table.cellChanged.connect(self._mark_dirty)
+        # Update status bar context when switching tabs
+        self.tabs.currentChanged.connect(lambda _: self._update_status_context())
+
         # Add Bottom Status Bar
-        self.statusBar().showMessage("Ready.")
+        self._update_status_context()
 
     # ==========================================================
     #           SFX SAVE / LOAD  (LANTHORN_SFX format)
@@ -788,5 +817,49 @@ class LanthornMainWindow(QMainWindow):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._a4_tuning = tuning_spin.value()
             self._default_export_dir = export_dir.text()
+            # Write tuning back into the engine constants so it takes effect
+            import engine.constants as _ec
+            _ec.ROOT_A4_FREQ = self._a4_tuning
             self.statusBar().showMessage(
                 f"Settings updated — A4={self._a4_tuning}Hz, Export: {self._default_export_dir}")
+
+    def _mark_dirty(self, *_args):
+        """Called on any tracker cell edit to flag unsaved changes."""
+        self._unsaved_changes = True
+        self._update_status_context()
+
+    def closeEvent(self, event):
+        """Prompt to save before closing if there are unsaved changes."""
+        if self._unsaved_changes:
+            reply = QMessageBox.question(
+                self, "Unsaved Changes",
+                "You have unsaved changes. Save before exiting?",
+                QMessageBox.StandardButton.Save |
+                QMessageBox.StandardButton.Discard |
+                QMessageBox.StandardButton.Cancel
+            )
+            if reply == QMessageBox.StandardButton.Save:
+                self.save_project()
+                event.accept()
+            elif reply == QMessageBox.StandardButton.Discard:
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()
+
+    def _update_status_context(self):
+        """Show the current project or SFX name in the status bar."""
+        idx = self.tabs.currentIndex()
+        parts = []
+        if self._current_project_path:
+            name = os.path.basename(self._current_project_path)
+            parts.append(f"Project: {name}")
+        else:
+            parts.append("Project: (untitled)")
+        if idx == 2 and self._current_sfx_path:
+            sfx_name = os.path.basename(self._current_sfx_path)
+            parts.append(f"SFX: {sfx_name}")
+        if self._unsaved_changes:
+            parts.append("[modified]")
+        self.statusBar().showMessage(" | ".join(parts))

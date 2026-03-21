@@ -45,15 +45,34 @@ class WaveBaker:
             raise ValueError(f"Bit depth {bit_depth} not supported.")
 
     def _resample(self, audio_array, orig_rate, target_rate):
-        """Simple downsampling by decimation."""
+        """Downsample with a simple anti-aliasing lowpass filter."""
         if orig_rate == target_rate:
             return audio_array
-        step = int(orig_rate / target_rate)
-        if step <= 0:
-            step = 1
+        ratio = orig_rate / target_rate
+        target_len = int(len(audio_array) / ratio)
+        if target_len < 1:
+            target_len = 1
+
+        # Apply simple moving-average lowpass before decimation
+        kernel_size = max(2, int(ratio))
+        kernel = np.ones(kernel_size) / kernel_size
+
         if audio_array.ndim == 2:
-            return audio_array[::step, :]
-        return audio_array[::step]
+            filtered = np.column_stack([
+                np.convolve(audio_array[:, ch], kernel, mode='same')
+                for ch in range(audio_array.shape[1])
+            ])
+            x_old = np.linspace(0, 1, len(filtered))
+            x_new = np.linspace(0, 1, target_len)
+            return np.column_stack([
+                np.interp(x_new, x_old, filtered[:, ch])
+                for ch in range(filtered.shape[1])
+            ])
+        else:
+            filtered = np.convolve(audio_array, kernel, mode='same')
+            x_old = np.linspace(0, 1, len(filtered))
+            x_new = np.linspace(0, 1, target_len)
+            return np.interp(x_new, x_old, filtered)
 
     def export_wav(self, filepath, audio_array, sample_rate=44100, bit_depth=16):
         """Exports audio as WAV file."""

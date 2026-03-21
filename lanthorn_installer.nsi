@@ -79,11 +79,9 @@ Section "Install" SecMain
 
     ; Bundled ffmpeg binaries (required by pydub for MP3 export)
     ; build.bat downloads these automatically into tools\ffmpeg\
-    IfFileExists "dist\ffmpeg\ffmpeg.exe" 0 +3
-        SetOutPath "$INSTDIR\ffmpeg"
-        File "dist\ffmpeg\ffmpeg.exe"
-    IfFileExists "dist\ffmpeg\ffprobe.exe" 0 +2
-        File "dist\ffmpeg\ffprobe.exe"
+    SetOutPath "$INSTDIR\ffmpeg"
+    File /nonfatal "dist\ffmpeg\ffmpeg.exe"
+    File /nonfatal "dist\ffmpeg\ffprobe.exe"
 
     ; Write registry keys for uninstaller / Add/Remove Programs
     SetOutPath "$INSTDIR"

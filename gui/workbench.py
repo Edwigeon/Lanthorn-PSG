@@ -621,7 +621,8 @@ class WorkbenchWidget(QWidget):
     def update_oscilloscope(self):
         patch = self.get_patch()
         duration = 0.01
-        freq = 440.0 
+        from engine.constants import ROOT_A4_FREQ
+        freq = ROOT_A4_FREQ
         
         raw_wave = self.osc.generate(patch["wave_type"], freq, duration)
         
@@ -770,8 +771,19 @@ class WorkbenchWidget(QWidget):
 
     def _set_generic_mod_sliders(self, win):
         """Helper to sync a GenericModWindow's internal values to its sliders."""
-        # The GenericModWindow creates sliders in create_v_slider but doesn't store them
-        # as named attributes. We can trigger an update via the window's display.
+        # The GenericModWindow creates sliders via create_v_slider in a QVBoxLayout.
+        # We find the QSlider children and set them to match depth_val / rate_val.
+        from PyQt6.QtWidgets import QSlider
+        sliders = win.findChildren(QSlider)
+        # First slider = Depth, Second slider = Rate (order from create_v_slider calls)
+        if len(sliders) >= 1:
+            sliders[0].blockSignals(True)
+            sliders[0].setValue(int(win.depth_val * 100))
+            sliders[0].blockSignals(False)
+        if len(sliders) >= 2:
+            sliders[1].blockSignals(True)
+            sliders[1].setValue(int(win.rate_val * 100))
+            sliders[1].blockSignals(False)
         if hasattr(win, 'update_display'):
             win.update_display()
 
@@ -865,7 +877,8 @@ class WorkbenchWidget(QWidget):
         segments = []
         prev_freq = None
         for midi_note, dur in melody:
-            freq = 440.0 * (2.0 ** ((midi_note - 69) / 12.0))
+            from engine.constants import ROOT_A4_FREQ
+            freq = ROOT_A4_FREQ * (2.0 ** ((midi_note - 69) / 12.0))
             note = self.osc.generate(patch["wave_type"], freq, dur)
             if wave_2 and wave_2 != "off" and mix_r > 0.0:
                 w2 = self.osc.generate(wave_2, freq, dur)
@@ -978,6 +991,7 @@ class WorkbenchWidget(QWidget):
         full = full / (np.max(np.abs(full)) + 1e-9) * 0.7  # normalize
 
         try:
+            sd.stop()
             sd.play(full.astype(np.float32), samplerate=sr)
         except Exception as e:
             print("Audio Playback Error:", e)

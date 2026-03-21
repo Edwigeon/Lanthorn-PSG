@@ -30,8 +30,8 @@ MIDI_HIGH = 96  # C7
 TOTAL_NOTES = MIDI_HIGH - MIDI_LOW + 1   # 61 rows
 
 def midi_to_freq(midi_note):
-    """Convert MIDI note number to frequency in Hz."""
-    return 440.0 * (2.0 ** ((midi_note - 69) / 12.0))
+    from engine.constants import ROOT_A4_FREQ
+    return ROOT_A4_FREQ * (2.0 ** ((midi_note - 69) / 12.0))
 
 def midi_to_name(midi_note):
     """Convert MIDI note number to human-readable name like 'C4'."""
@@ -889,17 +889,19 @@ class SfxCanvas(QWidget):
                 s0 = max(0, min(int(s * samples_per_step), total_samples))
                 s1 = max(0, min(int((s + 1) * samples_per_step), total_samples))
                 gate[s0:s1] = 1.0
-            # Smooth gate edges
+            # Smooth gate edges (vectorized)
             smoothed = gate.copy()
-            for i in range(1, len(smoothed)):
-                if smoothed[i] > smoothed[i - 1]:
-                    r_start = max(0, i - ramp_len)
-                    smoothed[r_start:i] = np.maximum(
-                        smoothed[r_start:i], np.linspace(0, 1, i - r_start))
-                elif smoothed[i] < smoothed[i - 1]:
-                    r_end = min(len(smoothed), i + ramp_len)
-                    smoothed[i:r_end] = np.minimum(
-                        smoothed[i:r_end], np.linspace(1, 0, r_end - i))
+            edges = np.diff(gate)
+            rise_idx = np.where(edges > 0)[0] + 1   # indices where gate goes 0→1
+            fall_idx = np.where(edges < 0)[0] + 1   # indices where gate goes 1→0
+            for idx in rise_idx:
+                r_start = max(0, idx - ramp_len)
+                ramp = np.linspace(0, 1, idx - r_start)
+                smoothed[r_start:idx] = np.maximum(smoothed[r_start:idx], ramp)
+            for idx in fall_idx:
+                r_end = min(len(smoothed), idx + ramp_len)
+                ramp = np.linspace(1, 0, r_end - idx)
+                smoothed[idx:r_end] = np.minimum(smoothed[idx:r_end], ramp)
             layer_buf *= smoothed
         else:
             # --- NORMAL MODE: per-note oscillators ---

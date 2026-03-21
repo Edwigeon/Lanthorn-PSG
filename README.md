@@ -68,16 +68,15 @@ build.bat
 1. Install all Python dependencies
 2. Automatically download a static **ffmpeg** build (needed for MP3 export)
 3. Run PyInstaller to produce `dist\LanthornPSG.exe`
-4. Create a Windows installer (`LanthornPSG_Setup_0.3.exe`) if **NSIS** is installed
+4. Automatically download **NSIS** (if not already installed) and create a Windows installer (`LanthornPSG_Setup_0.3.exe`)
 
 #### Windows Prerequisites
 
 | Tool | Required for | Download |
 |---|---|---|
 | Python 3.12+ | Running / building | [python.org](https://python.org) |
-| NSIS 3.x | Installer creation | [nsis.sourceforge.io](https://nsis.sourceforge.io) |
 
-> ffmpeg is downloaded automatically by `build.bat` — no manual install needed.
+> Both ffmpeg and NSIS are downloaded automatically by `build.bat` — no manual install needed.
 
 ---
 

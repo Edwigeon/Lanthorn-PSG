@@ -1,6 +1,6 @@
 ================================================================================
-  LANTHORN PSG — ENGINE SPECIFICATION V1.1 (In-Depth Reference)
-  Dual-Bake Tracker + SFX Painter
+  LANTHORN PSG — ENGINE SPECIFICATION V0.3
+  Tracker + SFX Painter
 ================================================================================
 
 TABLE OF CONTENTS

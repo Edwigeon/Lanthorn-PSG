@@ -14,23 +14,30 @@ class Theory:
 
     @staticmethod
     def string_to_midi(note_str):
-        """Converts a tracker string like 'C-4' or 'D#5' into a MIDI integer (0-127)."""
+        """Converts a tracker string like 'C-4', 'D#5', or 'Db5' into a MIDI integer (0-127)."""
         if not note_str or note_str == "---" or note_str == "OFF":
             return -1
             
         notes_sharp = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        notes_flat  = ["C", "Db",  "D", "Eb",  "E", "F", "Gb",  "G", "Ab",  "A", "Bb",  "B"]
         
         try:
-            note_char = note_str[0:2] if len(note_str) > 1 and note_str[1] == '#' else note_str[0]
+            # Check for sharp or flat (2-char note name)
+            if len(note_str) > 1 and note_str[1] in ('#', 'b'):
+                note_char = note_str[0:2]
+            else:
+                note_char = note_str[0]
             octave_str = note_str[-1]
             if not octave_str.isdigit():
                 return -1
                 
             octave = int(octave_str)
-            if note_char not in notes_sharp: 
+            if note_char in notes_sharp:
+                return notes_sharp.index(note_char) + (octave + 1) * 12
+            elif note_char in notes_flat:
+                return notes_flat.index(note_char) + (octave + 1) * 12
+            else:
                 return -1
-                
-            return notes_sharp.index(note_char) + (octave + 1) * 12
         except Exception:
             return -1
 

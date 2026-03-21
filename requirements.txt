@@ -4,3 +4,4 @@ PyQt6
 pyqtgraph
 soundfile
 pydub
+scipy

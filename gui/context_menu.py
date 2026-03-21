@@ -976,7 +976,7 @@ class BankContextMenu:
             # Save copy to disk
             safe_name = "".join([c for c in new_display if c.isalpha() or c.isdigit() or c=='_']).rstrip()
             workbench.preset_mgr.save_instrument(safe_name, entry["patch"].copy(), folder=folder)
-            workbench.refresh_bank_list()
+            workbench._populate_bank_tree()
 
     @staticmethod
     def _save_to_disk(workbench):

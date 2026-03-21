@@ -119,24 +119,84 @@ echo    Output: dist\LanthornPSG.exe
 echo  =============================================
 echo.
 
-REM ---- Optionally build the NSIS installer ----
+REM ---- Locate or download NSIS for installer build ----
+echo.
+echo  Checking for NSIS (makensis)...
+
+set "MAKENSIS_CMD="
+
+REM Check if makensis is already on PATH
 where makensis >nul 2>&1
 if !errorlevel! == 0 (
-    echo  NSIS found - building installer...
-    makensis lanthorn_installer.nsi
-    if exist "LanthornPSG_Setup_0.3.exe" (
-        echo.
-        echo  =============================================
-        echo    INSTALLER CREATED: LanthornPSG_Setup_0.3.exe
-        echo  =============================================
-    ) else (
-        echo  WARNING: NSIS ran but installer was not produced.
-    )
-) else (
-    echo  NSIS not found - skipping installer step.
-    echo  Install NSIS from https://nsis.sourceforge.io to enable installer builds.
+    set "MAKENSIS_CMD=makensis"
+    echo  NSIS found on PATH.
+    goto :run_nsis
 )
 
+REM Check if we already downloaded it
+if exist "tools\nsis\makensis.exe" (
+    set "MAKENSIS_CMD=tools\nsis\makensis.exe"
+    echo  NSIS found in tools\nsis\.
+    goto :run_nsis
+)
+
+REM Download NSIS portable
+echo  NSIS not found - downloading NSIS 3.10 portable...
+if not exist tools mkdir tools
+
+set "NSIS_URL=https://sourceforge.net/projects/nsis/files/NSIS 3/3.10/nsis-3.10.zip/download"
+
+where curl.exe >nul 2>&1
+if !errorlevel! == 0 (
+    echo  Downloading with curl...
+    curl.exe -L --progress-bar -o "tools\nsis_dl.zip" "!NSIS_URL!"
+) else (
+    echo  Downloading with PowerShell...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri '!NSIS_URL!' -OutFile 'tools\nsis_dl.zip' -UseBasicParsing"
+)
+
+if not exist "tools\nsis_dl.zip" (
+    echo  WARNING: Failed to download NSIS. Skipping installer step.
+    echo  Install NSIS manually from https://nsis.sourceforge.io
+    goto :done
+)
+
+echo  Extracting NSIS...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path 'tools\nsis_dl.zip' -DestinationPath 'tools\nsis_tmp' -Force"
+
+REM The zip contains a top-level nsis-3.10 folder; move its contents
+for /d %%D in (tools\nsis_tmp\nsis-*) do (
+    if exist "%%D\makensis.exe" (
+        if not exist "tools\nsis" mkdir tools\nsis
+        xcopy /e /i /y "%%D\*" "tools\nsis\" >nul
+    )
+)
+
+del /q tools\nsis_dl.zip 2>nul
+rmdir /s /q tools\nsis_tmp 2>nul
+
+if exist "tools\nsis\makensis.exe" (
+    set "MAKENSIS_CMD=tools\nsis\makensis.exe"
+    echo  NSIS downloaded successfully.
+) else (
+    echo  WARNING: Could not extract NSIS. Skipping installer step.
+    goto :done
+)
+
+:run_nsis
+echo  Building installer with NSIS...
+"%MAKENSIS_CMD%" lanthorn_installer.nsi
+
+if exist "LanthornPSG_Setup_0.3.exe" (
+    echo.
+    echo  =============================================
+    echo    INSTALLER CREATED: LanthornPSG_Setup_0.3.exe
+    echo  =============================================
+) else (
+    echo  WARNING: NSIS ran but installer was not produced.
+)
+
+:done
 echo.
 pause
 endlocal

@@ -3,10 +3,11 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QLabel,
     QDialog, QLineEdit, QInputDialog, QMessageBox, QAbstractItemView
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtGui import QColor, QBrush, QPen, QKeySequence, QShortcut, QUndoStack, QUndoCommand
 import pyqtgraph as pg
 import time
+import threading
 from .context_menu import TrackerContextMenu
 
 class TrackerTableWidget(QTableWidget):
@@ -1250,62 +1251,52 @@ class TrackerWidget(QWidget):
         bpm, lpb, lpm, key, mode = self._get_pattern_timing(self.active_pattern)
         bank = main_win.workbench_container.bank_data
 
-        from engine.playback import Sequencer
-        import numpy as np
-        seq = Sequencer(44100)
-
         grid = self.patterns.get(self.active_pattern)
         pat_len = self.pattern_lengths.get(self.active_pattern, 64)
         if grid is None:
             return
         tracks = self._build_tracks_from_grid(grid, pat_len, bank)
-        try:
-            audio = seq.render_pattern(pat_len, bpm, tracks)
-        except Exception as e:
-            import traceback
-            print(f"Render Error:\n{traceback.format_exc()}")
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.critical(main_win, "Playback Error", f"Pattern {self.active_pattern}:\n\n{e}")
-            return
 
-        if audio.ndim == 2:
-            self._rendered_audio = audio[:, 0]
-        else:
-            self._rendered_audio = audio
-        self._total_song_steps = pat_len
-        self._play_pattern_steps = [(self.active_pattern, pat_len)]
+        active_pat = self.active_pattern
 
-        import sounddevice as sd
-        try:
-            sd.play(audio, samplerate=44100)
-        except Exception as e:
-            print("Audio Playback Error:", e)
+        def _render_and_play():
+            from engine.playback import Sequencer
+            import numpy as np
+            seq = Sequencer(44100)
+            try:
+                audio = seq.render_pattern(pat_len, bpm, tracks)
+            except Exception as e:
+                import traceback
+                print(f"Render Error:\n{traceback.format_exc()}")
+                return
 
-        if hasattr(self, 'playhead_timer'):
-            self.playhead_timer.stop()
-        self._play_seq_idx = 0
-        self._play_pat_row = 0
-        self._play_global_step = 0
-        self._play_start_time = time.perf_counter()
-        self._play_pause_offset = 0.0
-        
-        # Calculate timestamps for each step in the sequence
-        self._step_times = []
-        current_time = 0.0
-        for pat_id, p_len in self._play_pattern_steps:
-            p_bpm, p_lpb, _, _, _ = self._get_pattern_timing(pat_id)
+            # Calculate timestamps for each step
+            step_times = []
+            step_time_values = []
+            current_time = 0.0
+            p_bpm, p_lpb, _, _, _ = self._get_pattern_timing(active_pat)
             step_dur = seq.calculate_step_time(p_bpm, p_lpb)
-            for _ in range(p_len):
-                self._step_times.append({
-                    "time": current_time,
-                    "pat_id": pat_id,
-                    "row": _
-                })
+            for r in range(pat_len):
+                step_times.append({"time": current_time, "pat_id": active_pat, "row": r})
+                step_time_values.append(current_time)
                 current_time += step_dur
-        self._total_duration = current_time
 
-        self.table.selectRow(0)
-        self._start_viz_timer()
+            # Schedule UI updates + playback on the main thread
+            from PyQt6.QtCore import QMetaObject, Qt as QtNS, Q_ARG
+            QMetaObject.invokeMethod(self, "_on_render_done",
+                QtNS.ConnectionType.QueuedConnection,
+                Q_ARG(object, audio),
+                Q_ARG(object, step_times),
+                Q_ARG(object, step_time_values),
+                Q_ARG(object, [(active_pat, pat_len)]),
+                Q_ARG(object, current_time),
+                Q_ARG(object, pat_len),
+                Q_ARG(object, None))  # no full-song cache
+
+        self.statusBar_msg = "Rendering..."
+        if hasattr(main_win, 'statusBar'):
+            main_win.statusBar().showMessage("Rendering pattern...")
+        threading.Thread(target=_render_and_play, daemon=True).start()
 
     def play_solo_track(self, track_idx=None):
         """Plays only the specified track (or the selected track if none given)."""
@@ -1324,10 +1315,6 @@ class TrackerWidget(QWidget):
         lpb = main_win.spin_lpb.value()
         bank = main_win.workbench_container.bank_data
 
-        from engine.playback import Sequencer
-        import numpy as np
-        seq = Sequencer(44100)
-
         grid = self.patterns.get(self.active_pattern)
         pat_len = self.pattern_lengths.get(self.active_pattern, 64)
         if grid is None:
@@ -1339,50 +1326,42 @@ class TrackerWidget(QWidget):
         if not solo_tracks:
             return
 
-        try:
-            audio = seq.render_pattern(pat_len, bpm, solo_tracks)
-        except Exception as e:
-            import traceback
-            print(f"Solo Render Error:\n{traceback.format_exc()}")
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.critical(main_win, "Solo Error", f"Track {track_idx + 1}:\n\n{e}")
-            return
+        active_pat = self.active_pattern
 
-        if audio.ndim == 2:
-            self._rendered_audio = audio[:, 0]
-        else:
-            self._rendered_audio = audio
-        self._total_song_steps = pat_len
-        self._play_pattern_steps = [(self.active_pattern, pat_len)]
+        def _render_and_play():
+            from engine.playback import Sequencer
+            import numpy as np
+            seq = Sequencer(44100)
+            try:
+                audio = seq.render_pattern(pat_len, bpm, solo_tracks)
+            except Exception as e:
+                import traceback
+                print(f"Solo Render Error:\n{traceback.format_exc()}")
+                return
 
-        import sounddevice as sd
-        try:
-            sd.play(audio, samplerate=44100)
-        except Exception as e:
-            print("Audio Playback Error:", e)
+            step_times = []
+            step_time_values = []
+            current_time = 0.0
+            step_dur = seq.calculate_step_time(bpm, lpb)
+            for r in range(pat_len):
+                step_times.append({"time": current_time, "pat_id": active_pat, "row": r})
+                step_time_values.append(current_time)
+                current_time += step_dur
 
-        if hasattr(self, 'playhead_timer'):
-            self.playhead_timer.stop()
-        self._play_seq_idx = 0
-        self._play_pat_row = 0
-        self._play_global_step = 0
-        self._play_start_time = time.perf_counter()
-        self._play_pause_offset = 0.0
-        
-        self._step_times = []
-        current_time = 0.0
-        step_dur = seq.calculate_step_time(bpm, lpb)
-        for _ in range(pat_len):
-            self._step_times.append({
-                "time": current_time,
-                "pat_id": self.active_pattern,
-                "row": _
-            })
-            current_time += step_dur
-        self._total_duration = current_time
+            from PyQt6.QtCore import QMetaObject, Qt as QtNS, Q_ARG
+            QMetaObject.invokeMethod(self, "_on_render_done",
+                QtNS.ConnectionType.QueuedConnection,
+                Q_ARG(object, audio),
+                Q_ARG(object, step_times),
+                Q_ARG(object, step_time_values),
+                Q_ARG(object, [(active_pat, pat_len)]),
+                Q_ARG(object, current_time),
+                Q_ARG(object, pat_len),
+                Q_ARG(object, None))
 
-        self.table.selectRow(0)
-        self._start_viz_timer()
+        if hasattr(main_win, 'statusBar'):
+            main_win.statusBar().showMessage("Rendering solo track...")
+        threading.Thread(target=_render_and_play, daemon=True).start()
 
     def play_sequence(self):
         """Renders and plays the entire song via the order list."""
@@ -1392,59 +1371,109 @@ class TrackerWidget(QWidget):
         main_win = self.window()
         bank = main_win.workbench_container.bank_data
 
+        # Snapshot order list and pattern data for the background thread
+        order_snapshot = list(self.order_list)
+        pat_lengths_snapshot = dict(self.pattern_lengths)
+        pat_timings = {}
+        grids = {}
+        track_data = {}
         from engine.playback import Sequencer
-        import numpy as np
-        seq = Sequencer(44100)
+        seq_tmp = Sequencer(44100)
+        for pat_id in order_snapshot:
+            pat_timings[pat_id] = self._get_pattern_timing(pat_id)
+            grids[pat_id] = self.patterns.get(pat_id)
+            pat_len = pat_lengths_snapshot.get(pat_id, 64)
+            g = grids[pat_id]
+            if g is not None:
+                track_data[pat_id] = self._build_tracks_from_grid(g, pat_len, bank)
 
-        # Render each pattern in the order list WITHOUT per-pattern limiting
-        # so we can apply project-wide normalization after concatenation
-        audio_blocks = []
-        self._play_pattern_steps = []  # [(pattern_id, step_count, bpm, lpb), ...]
-        for pat_id in self.order_list:
-            pat_len = self.pattern_lengths.get(pat_id, 64)
-            pat_bpm, pat_lpb, _, _, _ = self._get_pattern_timing(pat_id)
-            grid = self.patterns.get(pat_id)
-            if grid is None:
-                # Empty pattern — generate silence
-                step_dur = seq.calculate_step_time(pat_bpm, pat_lpb)
-                silence_samples = int(pat_len * step_dur * 44100)
-                audio_blocks.append(np.zeros((silence_samples, 2)))
-                self._play_pattern_steps.append((pat_id, pat_len, pat_bpm, pat_lpb))
-                continue
-            tracks = self._build_tracks_from_grid(grid, pat_len, bank)
-            try:
-                block = seq.render_pattern(pat_len, pat_bpm, tracks, apply_limiter=False)
-                audio_blocks.append(block)
-            except Exception as e:
-                import traceback
-                print(f"Render Error in pattern {pat_id}:\n{traceback.format_exc()}")
-                from PyQt6.QtWidgets import QMessageBox
-                QMessageBox.critical(main_win, "Playback Error",
-                    f"Error in pattern {pat_id}:\n\n{e}")
+        def _render_and_play():
+            from engine.playback import Sequencer
+            import numpy as np
+            seq = Sequencer(44100)
+
+            audio_blocks = []
+            play_pattern_steps = []
+            for pat_id in order_snapshot:
+                pat_len = pat_lengths_snapshot.get(pat_id, 64)
+                pat_bpm, pat_lpb, _, _, _ = pat_timings[pat_id]
+                grid = grids.get(pat_id)
+                if grid is None:
+                    step_dur = seq.calculate_step_time(pat_bpm, pat_lpb)
+                    silence_samples = int(pat_len * step_dur * 44100)
+                    audio_blocks.append(np.zeros((silence_samples, 2)))
+                    play_pattern_steps.append((pat_id, pat_len, pat_bpm, pat_lpb))
+                    continue
+                tracks = track_data.get(pat_id, [])
+                try:
+                    block = seq.render_pattern(pat_len, pat_bpm, tracks, apply_limiter=False)
+                    audio_blocks.append(block)
+                except Exception as e:
+                    import traceback
+                    print(f"Render Error in pattern {pat_id}:\n{traceback.format_exc()}")
+                    return
+                play_pattern_steps.append((pat_id, pat_len, pat_bpm, pat_lpb))
+
+            if not audio_blocks:
                 return
-            self._play_pattern_steps.append((pat_id, pat_len, pat_bpm, pat_lpb))
+            audio = np.concatenate(audio_blocks, axis=0)
 
-        if not audio_blocks:
-            return
-        audio = np.concatenate(audio_blocks, axis=0)
+            max_val = np.max(np.abs(audio))
+            if max_val > 0.98:
+                audio = audio * (0.98 / max_val)
 
-        # Project-wide normalization: single limiter pass across entire song
-        max_val = np.max(np.abs(audio))
-        if max_val > 0.98:
-            audio = audio * (0.98 / max_val)
+            total_song_steps = sum(entry[1] for entry in play_pattern_steps)
 
-        # Store for visualizer
+            # Precalculate exact timestamps
+            step_times = []
+            step_time_values = []
+            current_time = 0.0
+            for pat_id, p_len, p_bpm, p_lpb in play_pattern_steps:
+                step_dur = seq.calculate_step_time(p_bpm, p_lpb)
+                for r in range(p_len):
+                    step_times.append({"time": current_time, "pat_id": pat_id, "row": r})
+                    step_time_values.append(current_time)
+                    current_time += step_dur
+
+            from PyQt6.QtCore import QMetaObject, Qt as QtNS, Q_ARG
+            QMetaObject.invokeMethod(self, "_on_render_done",
+                QtNS.ConnectionType.QueuedConnection,
+                Q_ARG(object, audio),
+                Q_ARG(object, step_times),
+                Q_ARG(object, step_time_values),
+                Q_ARG(object, play_pattern_steps),
+                Q_ARG(object, current_time),
+                Q_ARG(object, total_song_steps),
+                Q_ARG(object, audio))  # cache for looping
+
+        if hasattr(main_win, 'statusBar'):
+            main_win.statusBar().showMessage("Rendering song...")
+        threading.Thread(target=_render_and_play, daemon=True).start()
+
+    @pyqtSlot(object, object, object, object, object, object, object)
+    def _on_render_done(self, audio, step_times, step_time_values,
+                        play_pattern_steps, total_duration, total_song_steps,
+                        cached_audio):
+        """Called on the main thread after background rendering completes."""
+        import numpy as np
+        import sounddevice as sd
+
         if audio.ndim == 2:
             self._rendered_audio = audio[:, 0]
         else:
             self._rendered_audio = audio
-        self._total_song_steps = sum(entry[1] for entry in self._play_pattern_steps)
+        self._play_pattern_steps = play_pattern_steps
+        self._total_song_steps = total_song_steps
+        self._step_times = step_times
+        self._step_time_values = step_time_values  # cached for _update_viz
+        self._total_duration = total_duration
+        self._cached_full_audio = cached_audio  # for loop restart
 
-        import sounddevice as sd
         try:
             sd.play(audio, samplerate=44100)
         except Exception as e:
             print("Audio Playback Error:", e)
+            return
 
         if hasattr(self, 'playhead_timer'):
             self.playhead_timer.stop()
@@ -1453,27 +1482,22 @@ class TrackerWidget(QWidget):
         self._play_global_step = 0
         self._play_start_time = time.perf_counter()
         self._play_pause_offset = 0.0
+        self._is_playing = True
 
-        # Precalculate exact timestamps for every step in the entire song
-        self._step_times = []
-        current_time = 0.0
-        for pat_id, p_len, p_bpm, p_lpb in self._play_pattern_steps:
-            step_dur = seq.calculate_step_time(p_bpm, p_lpb)
-            for _ in range(p_len):
-                self._step_times.append({
-                    "time": current_time,
-                    "pat_id": pat_id,
-                    "row": _
-                })
-                current_time += step_dur
-        self._total_duration = current_time
+        # Switch to the first pattern if this is a song play
+        if (isinstance(play_pattern_steps, list) and len(play_pattern_steps) > 0
+                and len(play_pattern_steps[0]) >= 3):
+            # Song mode (tuples have 4 elements)
+            first_pat = play_pattern_steps[0][0]
+            if first_pat != self.active_pattern:
+                self.switch_pattern(first_pat)
 
-        first_pat = self.order_list[0]
-        if first_pat != self.active_pattern:
-            self.switch_pattern(first_pat)
         self.table.selectRow(0)
-
         self._start_viz_timer()
+
+        main_win = self.window()
+        if hasattr(main_win, 'statusBar'):
+            main_win.statusBar().showMessage("Playing.")
 
     def playhead_tick(self):
         # Obsolete: replaced by precise perf_counter logic in _update_viz
@@ -1489,15 +1513,38 @@ class TrackerWidget(QWidget):
             if elapsed >= getattr(self, '_total_duration', 0.0):
                 main_win = self.window()
                 if hasattr(main_win, 'btn_loop') and main_win.btn_loop.isChecked():
-                    self.play_sequence()
-                    return
+                    # Loop: replay cached audio instead of re-rendering
+                    cached = getattr(self, '_cached_full_audio', None)
+                    if cached is not None:
+                        import sounddevice as sd
+                        try:
+                            sd.play(cached, samplerate=44100)
+                        except Exception:
+                            pass
+                        self._play_start_time = time.perf_counter()
+                        self._play_pause_offset = 0.0
+                        self._play_global_step = 0
+                        self._play_pat_row = 0
+                        self._play_seq_idx = 0
+                        if self._step_times:
+                            first_pat = self._step_times[0]["pat_id"]
+                            if first_pat != self.active_pattern:
+                                self.switch_pattern(first_pat)
+                        self.table.selectRow(0)
+                        self.refresh_order_display()
+                        return
+                    else:
+                        self.play_sequence()
+                        return
                 else:
                     self.stop_sequence()
                     return
 
-            # Find current step via binary search on precalculated step times
+            # Find current step via binary search on cached step times
             import bisect
-            times = [s["time"] for s in self._step_times]
+            times = getattr(self, '_step_time_values', None)
+            if times is None:
+                times = [s["time"] for s in self._step_times]
             idx = bisect.bisect_right(times, elapsed) - 1
             if idx >= 0 and idx < len(self._step_times):
                 step_info = self._step_times[idx]
