@@ -484,7 +484,73 @@ PAN is NOT processed as a standard FX. Instead:
 ---
 
 ## 15. SFX CANVAS
-*(Section Pending)*
+
+The SFX Canvas is a multi-layer piano-roll painter for designing retro sound effects by drawing directly on a grid.
+
+### 15.1 Grid Layout
+- **Y-axis**: Musical notes from C2 (MIDI 36) to C7 (MIDI 96) — 61 chromatic rows.
+- **X-axis**: 128 time steps mapped to a configurable duration (0.05s – 4.00s).
+- Row 0 (top) = C7 (highest), Row 60 (bottom) = C2 (lowest).
+- Note labels are drawn at every C and A for orientation.
+
+### 15.2 Paint Layers
+Three independent color layers, each with its own waveform, volume, and FX:
+
+| Layer | Color | Default Wave |
+| :--- | :--- | :--- |
+| Red | `#FF004D` | sine |
+| Blue | `#29ADFF` | square |
+| Yellow | `#FFEC27` | sawtooth |
+
+Per-layer options:
+- **Waveform**: sine, square, triangle, sawtooth, noise.
+- **Volume**: 0–100% mix slider.
+- **Normalize**: Scales the layer to peak amplitude before mixing.
+- **Smooth**: Interpolates frequency between painted notes (glide/portamento mode).
+
+### 15.3 Drawing Tools
+| Tool | Behavior |
+| :--- | :--- |
+| 🖌 Paint | Click or drag to place cells on the active layer. |
+| 🧹 Erase | Click or drag to remove cells (adjustable size 1–5). |
+| 📏 Line | Click start → click end; fills via Bresenham's algorithm. |
+| 〰 Curve | Click start → click control → click end; quadratic Bézier fill. |
+
+Ctrl+scroll to zoom the canvas.
+
+### 15.4 Foley FX (Per-Layer)
+Each layer stores its own independent FX parameters. Switching the active layer saves the outgoing FX and loads the incoming set.
+
+| FX | Range | Description |
+| :--- | :--- | :--- |
+| Attack | 0–100% | Fade-in envelope |
+| Release | 0–100% | Fade-out envelope |
+| Bit Crush | 4–16 bits | Amplitude quantization |
+| Pitch Sweep | −100 to +100 | Logarithmic pitch bend over duration |
+| Tremolo | 0–100% depth, 1–30 Hz | Amplitude LFO |
+| Vibrato | 0–100% depth, 1–30 Hz | Pitch LFO (sample-shift) |
+| Echo | 0–80% feedback, 20–500 ms | Multi-tap delay (6 taps max) |
+| Ring Mod | 0–100% mix, 50–2000 Hz | Carrier sine multiplication |
+| Saturation | 0–100% | Soft clip via `tanh` overdrive |
+| Detune | 0–100 cents | Pitch shift via resampling |
+| Delay Start | 0–100% | Shifts audio later in the buffer |
+
+### 15.5 Rendering Modes
+**Normal mode** (default): Each unique painted note generates its own oscillator. Multiple notes at the same step produce chords, normalized by `√(voices)`. Notes are gated per-step with 1ms edge ramps.
+
+**Smooth mode** (per-layer checkbox): Builds a continuous frequency envelope by interpolating between painted note positions. The waveform follows the envelope for glide/portamento effects while still gated to painted regions.
+
+### 15.6 Duration & Auto-Trim
+- **Duration slider**: Sets the total canvas timespan (0.05s – 4.00s).
+- **Auto-trim**: When enabled, only the painted region (first painted step to last) is rendered, proportionally scaling the duration. Disabled = full 128-step span.
+
+### 15.7 Mix Pipeline
+1. Render each layer independently (Normal or Smooth mode).
+2. Apply that layer's Foley FX chain.
+3. Scale by layer volume.
+4. Sum all active layers, normalize by `√(active_count)`.
+5. Brick-wall clip to ±0.98.
+6. Output: mono float32 array at 44100 Hz.
 
 ---
 
