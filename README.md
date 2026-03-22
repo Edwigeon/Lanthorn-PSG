@@ -15,9 +15,9 @@ Lanthorn PSG is a free, open-source desktop app for composing tracker-style chip
 | **Master Tracker** | 8-track step sequencer with per-pattern BPM, key, mode, and time signatures |
 | **Instrument Lab** | Dual oscillators, ADSR envelope, and modular FX chain (vibrato, echo, saturation, arpeggio, and more) |
 | **SFX Painter** | Draw retro sound effects directly on a pitch/time grid with layered waveforms |
-| **Retro Visualizer** | Fullscreen CRT-style playback display with multiple themes and MP4 video export |
-| **Sequence Editor** | Drag-and-drop pattern ordering with live BPM and key display |
-| **Audio Export** | WAV (HQ / MidFi / Retro), OGG, and MP3 output via pydub |
+| **Retro Visualizer** | Fullscreen retro-style playback display with multiple themes and MP4 video export |
+| **Sequence Editor** | Simple pattern ordering with BPM and key display |
+| **Audio Export** | WAV (44.1kHz / 22kHz / 8kHz), OGG, and MP3 output via pydub |
 | **Preset Library** | 50+ built-in instruments organised by category (leads, bass, pads, keys, drums, strings) |
 | **Demo Projects** | Three complete songs included: *Bazaar*, *Lanthorn*, and *Iron Waltz* |
 
@@ -31,7 +31,7 @@ Compose up to 8 tracks of chiptune music with per-pattern BPM, key, mode, and ti
 ![Master Tracker](assets/master_tracker.png)
 
 ### Retro Visualizer
-A CRT-style fullscreen playback view with oscilloscope, level meters, and multiple retro themes. Export your project as an MP4 video at 1080p.
+A retro-style fullscreen playback view with oscilloscope, level meters, and multiple retro themes. Export your project as an MP4 video at 1080p.
 
 ![Retro Visualizer](assets/retro_visualizer.png)
 
@@ -46,7 +46,7 @@ Design instruments with dual oscillators, ADSR envelopes, and a modular FX rack.
 ![Instrument Lab](assets/instrument_lab.png)
 
 ### Sequence Editor
-Arrange patterns into a full song with drag-and-drop reordering. Each pattern can have its own BPM, time signature, key, and mode.
+Arrange patterns into a full song with easy reordering.
 
 ![Sequence Editor](assets/sequence_editor.png)
 
@@ -139,25 +139,6 @@ lanthorn_psg/
 ├── lanthorn_installer.nsi    # NSIS Windows installer script
 └── ENGINE_SPEC.md            # Full engine & FX command reference
 ```
-
----
-
-## 🎛️ FX Commands
-
-Lanthorn PSG supports a full set of tracker-style FX commands applied per-step or per-instrument:
-
-| Code | Effect | Parameter |
-|------|--------|-----------|
-| `VIB` | Vibrato | Depth (0–255) |
-| `TRM` | Tremolo | Depth (0–255) |
-| `ECH` | Echo / Delay | Feedback (0–255) |
-| `ARP` | Arpeggio | Interval pair (hi.lo semitones) |
-| `PRT` | Portamento | Speed (0–255) |
-| `SAT` | Saturation / Overdrive | Drive (0–255) |
-| `BIT` | Bit Crusher | Depth (0–255) |
-| `RNG` | Ring Modulator | Rate (0–255) |
-| `PAN` | Stereo Panning | Position (0–255) |
-| `ENV` | ADSR Envelope | A.D.S.R (0–100 each) |
 
 See [`ENGINE_SPEC.md`](ENGINE_SPEC.md) for the complete reference.
 
