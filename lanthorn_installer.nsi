@@ -1,9 +1,9 @@
 ; ============================================================
-; Lanthorn PSG v0.3.2 — NSIS Windows Installer Script
+; Lanthorn PSG v0.3.3 — NSIS Windows Installer Script
 ; Requires: NSIS 3.x (https://nsis.sourceforge.io)
 ; Run AFTER build.bat has produced the dist\LanthornPSG\ folder.
 ; Usage: makensis lanthorn_installer.nsi
-; Output: LanthornPSG_Setup_0.3.2.exe
+; Output: LanthornPSG_Setup_0.3.3.exe
 ; ============================================================
 
 Unicode True
@@ -13,10 +13,10 @@ Unicode True
 
 ; -------- Metadata --------
 !define APP_NAME        "Lanthorn PSG"
-!define APP_VERSION     "0.3.2"
+!define APP_VERSION     "0.3.3"
 !define APP_PUBLISHER   "Lanthorn PSG"
 !define APP_EXE         "LanthornPSG.exe"
-!define APP_ICON        "lanthorn_icon.ico"
+!define APP_ICON        "lanthorn.ico"
 !define INSTALL_DIR     "$PROGRAMFILES64\${APP_NAME}"
 !define UNINSTALL_KEY   "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
 !define REG_KEY         "Software\${APP_NAME}"
@@ -61,6 +61,9 @@ Section "Install" SecMain
     ; Main executable
     File "dist\LanthornPSG\${APP_EXE}"
 
+    ; Icon file for shortcuts
+    File "lanthorn.ico"
+
     ; PyInstaller _internal folder (DLLs, presets, icons, data — must be next to exe)
     SetOutPath "$INSTDIR\_internal"
     File /r "dist\LanthornPSG\_internal\*.*"
@@ -99,13 +102,13 @@ Section "Install" SecMain
     ; Start Menu shortcuts
     CreateDirectory "$SMPROGRAMS\${APP_NAME}"
     CreateShortcut  "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" \
-                    "$INSTDIR\${APP_EXE}" "" "$INSTDIR\${APP_EXE}" 0
+                    "$INSTDIR\${APP_EXE}" "" "$INSTDIR\lanthorn.ico" 0
     CreateShortcut  "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk" \
                     "$INSTDIR\Uninstall.exe" "" "$INSTDIR\Uninstall.exe" 0
 
     ; Desktop shortcut
     CreateShortcut  "$DESKTOP\${APP_NAME}.lnk" \
-                    "$INSTDIR\${APP_EXE}" "" "$INSTDIR\${APP_EXE}" 0
+                    "$INSTDIR\${APP_EXE}" "" "$INSTDIR\lanthorn.ico" 0
 
 SectionEnd
 
@@ -116,8 +119,8 @@ Section "Uninstall"
 
     ; Remove application files
     Delete "$INSTDIR\${APP_EXE}"
-    Delete "$INSTDIR\lanthorn_icon.png"
-    Delete "$INSTDIR\lanthorn_icon.ico"
+    Delete "$INSTDIR\lanthorn.png"
+    Delete "$INSTDIR\lanthorn.ico"
     Delete "$INSTDIR\ENGINE_SPEC.md"
     Delete "$INSTDIR\LICENSE"
     Delete "$INSTDIR\Uninstall.exe"

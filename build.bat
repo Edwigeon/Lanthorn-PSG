@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM Lanthorn PSG v0.3.2 - Windows Build Script
+REM Lanthorn PSG v0.3.3 - Windows Build Script
 REM Run this from the lanthorn_psg directory after installing Python.
 REM Automatically downloads ffmpeg and builds a Windows installer
 REM with NSIS if makensis is available.
@@ -80,6 +80,8 @@ if not exist "tools\ffmpeg\ffmpeg.exe" (
 
 REM ---- Build with PyInstaller ----
 echo.
+echo  Cleaning build cache...
+if exist build rmdir /s /q build
 echo  Building executable...
 python -m PyInstaller lanthorn_psg.spec --clean
 
@@ -181,10 +183,10 @@ if exist "tools\nsis\makensis.exe" (
 echo  Building installer with NSIS...
 "%MAKENSIS_CMD%" lanthorn_installer.nsi
 
-if exist "LanthornPSG_Setup_0.3.2.exe" (
+if exist "LanthornPSG_Setup_0.3.3.exe" (
     echo.
     echo  =============================================
-    echo    INSTALLER CREATED: LanthornPSG_Setup_0.3.2.exe
+    echo    INSTALLER CREATED: LanthornPSG_Setup_0.3.3.exe
     echo  =============================================
 ) else (
     echo  WARNING: NSIS ran but installer was not produced.

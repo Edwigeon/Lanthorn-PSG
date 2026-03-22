@@ -15,6 +15,12 @@ def _get_user_preset_dir():
     return os.path.join(os.path.expanduser('~'), '.lanthorn_psg', 'presets')
 
 class PresetManager:
+    # Canonical patch categories — always created so Save dialog & Bank UI show them
+    STANDARD_FOLDERS = [
+        "bass", "leads", "pads", "percussion",
+        "drums", "keys", "strings", "sfx",
+    ]
+
     def __init__(self, preset_dir=None):
         # Use user-writable dir for presets (supports saving)
         if preset_dir:
@@ -28,7 +34,12 @@ class PresetManager:
         self._seed_factory_presets()
     
     def _seed_factory_presets(self):
-        """Copy bundled factory presets to user dir if they don't exist yet."""
+        """Copy bundled factory presets to user dir if they don't exist yet,
+        and ensure all standard category folders are present."""
+        # Guarantee every standard folder exists (even if empty)
+        for folder in self.STANDARD_FOLDERS:
+            os.makedirs(os.path.join(self.preset_dir, folder), exist_ok=True)
+
         bundled_dir = os.path.join(_get_base_path(), 'presets')
         
         # Also check local dev presets dir
@@ -153,3 +164,11 @@ class PresetManager:
         if os.path.exists(filepath):
             os.remove(filepath)
             print(f"[Lanthorn] Deleted preset: {filepath}")
+
+    def get_folder_for_category(self, category):
+        """Maps a display category name (e.g. 'Bass', 'Leads') to its folder path.
+        Returns the full path to the category folder, or self.preset_dir if unrecognized."""
+        normalized = category.strip().lower()
+        if normalized in self.STANDARD_FOLDERS:
+            return os.path.join(self.preset_dir, normalized)
+        return self.preset_dir

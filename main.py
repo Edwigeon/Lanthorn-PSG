@@ -9,7 +9,7 @@ from PyQt6.QtGui import QIcon
 from gui.main_window import LanthornMainWindow
 
 def main():
-    print("🕯️ Igniting Lanthorn PSG v0.3.2...")
+    print("🕯️ Igniting Lanthorn PSG v0.3.3...")
 
     # Force WM_CLASS on X11 before QApplication is created
     os.environ.setdefault("RESOURCE_NAME", "lanthornpsg")
@@ -22,7 +22,7 @@ def main():
     app.setDesktopFileName("lanthornpsg")
 
     # Set application-wide icon (taskbar, window, alt-tab)
-    icon_name = 'lanthorn_icon.png'
+    icon_name = 'lanthorn.png'
     candidates = [
         os.path.join(getattr(sys, '_MEIPASS', ''), icon_name),
         os.path.join(os.path.dirname(sys.executable), icon_name),

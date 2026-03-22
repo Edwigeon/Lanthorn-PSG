@@ -9,21 +9,8 @@ from PyQt6.QtWidgets import QMenu, QInputDialog, QDialog, QVBoxLayout, QHBoxLayo
 from PyQt6.QtGui import QColor, QBrush, QAction
 from PyQt6.QtCore import Qt
 
-# FX command definitions: (display_name, code_prefix, description)
-FX_COMMANDS = [
-    ("Arpeggio",    "ARP", "Alternate +X, +Y semitones"),
-    ("Slide Up",    "SUP", "Pitch bend up"),
-    ("Slide Down",  "SDN", "Pitch bend down"),
-    ("Portamento",  "PRT", "Glide to next note"),
-    ("Vibrato",     "VIB", "Speed / Depth override"),
-    ("Volume",      "VOL", "Set velocity (0-127)"),
-    ("Echo",        "ECH", "Delay / Feedback"),
-    ("Tremolo",     "TRM", "Speed / Depth"),
-    ("Ring Mod",    "RNG", "Carrier mix amount"),
-    ("Note Cut",    "CUT", "Delayed note cut"),
-    ("Retrigger",   "RTG", "Stutter gate effect"),
-    ("Saturation",  "SAT", "Harmonic saturation / drive"),
-]
+# Import centralized FX catalog from the unified manager
+from .fx_ui_manager import FX_CATALOG, FX_COMMANDS, FXPopupWindow
 
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
@@ -44,6 +31,18 @@ GATE_PRESETS = [
     ("16 steps",   "16"),
     ("32 steps",   "32"),
 ]
+
+# Smart defaults: auto-fill velocity/gate per folder category
+SMART_DEFAULTS = {
+    "drums":      {"vel": "127", "gate": "1"},
+    "percussion": {"vel": "127", "gate": "1"},
+    "bass":       {"vel": "100", "gate": "4"},
+    "leads":      {"vel": "90",  "gate": "2"},
+    "keys":       {"vel": "80",  "gate": "3"},
+    "strings":    {"vel": "70",  "gate": "6"},
+    "pads":       {"vel": "60",  "gate": "8"},
+    "sfx":        {"vel": "100", "gate": "2"},
+}
 
 
 class TrackerContextMenu:
@@ -106,6 +105,21 @@ class TrackerContextMenu:
         paste_action.triggered.connect(
             lambda: TrackerContextMenu._paste_selected(table_widget, tracker_widget)
         )
+
+        menu.addSeparator()
+
+        # --- Row Selection ---
+        row_menu = menu.addMenu("📐 Select Row...")
+        row_track_action = row_menu.addAction(
+            f"Select Row {cursor_row} in Track {track_idx + 1}")
+        row_track_action.triggered.connect(
+            lambda: TrackerContextMenu._select_row_in_track(
+                table_widget, tracker_widget, cursor_row, track_idx))
+        row_all_action = row_menu.addAction(
+            f"Select Row {cursor_row} (All Tracks)")
+        row_all_action.triggered.connect(
+            lambda: TrackerContextMenu._select_row_all_tracks(
+                table_widget, tracker_widget, cursor_row))
 
         menu.addSeparator()
 
@@ -225,6 +239,56 @@ class TrackerContextMenu:
         for item in items:
             item.setText(text)
             item.setForeground(QBrush(QColor(color)))
+
+    @staticmethod
+    def _set_inst_with_defaults(table_widget, tracker_widget, inst_name, folder):
+        """Sets instrument name and applies smart default vel/gate based on folder."""
+        from PyQt6.QtWidgets import QTableWidgetItem
+        sub_cols = tracker_widget.sub_cols
+
+        # Set the instrument name on selected cells (col_type 1)
+        TrackerContextMenu._set_text_on_selected(
+            table_widget, tracker_widget, inst_name, "#ffaa00", 1)
+
+        # Look up smart defaults for this folder
+        defaults = SMART_DEFAULTS.get(folder.lower(), {}) if folder else {}
+        if not defaults:
+            return
+
+        # Apply defaults to vel/gate on the same rows
+        items = TrackerContextMenu._get_selected_cells(
+            table_widget, tracker_widget, 1)  # inst column items
+        if not items:
+            # Fallback: current cell
+            row = table_widget.currentRow()
+            col = table_widget.currentColumn()
+            rows_cols = [(row, col)]
+        else:
+            rows_cols = [(item.row(), item.column()) for item in items]
+
+        for row, col in rows_cols:
+            track_base = (col // sub_cols) * sub_cols
+            vel_col = track_base + 2
+            gate_col = track_base + 3
+
+            # Only fill if empty
+            vel_item = table_widget.item(row, vel_col)
+            if vel_item is None or vel_item.text() in ["--", "---", ""]:
+                if vel_item is None:
+                    vel_item = QTableWidgetItem()
+                    vel_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    table_widget.setItem(row, vel_col, vel_item)
+                vel_item.setText(defaults["vel"])
+                vel_item.setForeground(QBrush(QColor("#d4d4d4")))
+
+            gate_item = table_widget.item(row, gate_col)
+            if gate_item is None or gate_item.text() in ["--", "---", ""]:
+                if gate_item is None:
+                    gate_item = QTableWidgetItem()
+                    gate_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    table_widget.setItem(row, gate_col, gate_item)
+                gate_item.setText(defaults["gate"])
+                gate_item.setForeground(QBrush(QColor("#d4d4d4")))
 
     # --- Note Menu ---
     @staticmethod
@@ -388,9 +452,9 @@ class TrackerContextMenu:
             for key, display in sorted(folders[folder_name], key=lambda x: x[1]):
                 action = folder_menu.addAction(f"🎹 {display}")
                 action.triggered.connect(
-                    lambda checked, n=display: TrackerContextMenu._set_text_on_selected(
-                        table_widget, tracker_widget, n, "#ffaa00", 1)
-                )
+                    lambda checked, n=display, f=folder_name:
+                        TrackerContextMenu._set_inst_with_defaults(
+                            table_widget, tracker_widget, n, f))
         
         if folders and root_items:
             patches_menu.addSeparator()
@@ -399,9 +463,9 @@ class TrackerContextMenu:
         for key, display in sorted(root_items, key=lambda x: x[1]):
             action = patches_menu.addAction(f"🎹 {display}")
             action.triggered.connect(
-                lambda checked, n=display: TrackerContextMenu._set_text_on_selected(
-                    table_widget, tracker_widget, n, "#ffaa00", 1)
-            )
+                lambda checked, n=display:
+                    TrackerContextMenu._set_inst_with_defaults(
+                        table_widget, tracker_widget, n, None))
 
     # --- Velocity Menu ---
     @staticmethod
@@ -425,270 +489,101 @@ class TrackerContextMenu:
                     table_widget, tracker_widget, vv, "#d4d4d4", 3)
             )
 
-    # --- FX Menu (categorized with presets and conflict detection) ---
+    # --- FX Menu (streamlined — FX Editor handles details) ---
     @staticmethod
     def _build_fx_menu(menu, table_widget, tracker_widget):
         col = table_widget.currentColumn()
         sub_cols = tracker_widget.sub_cols
         fx_col_type = col % sub_cols  # 4 or 5
 
-         # Detect if this row has a chord in the Note column
+        # Detect if this row has a chord in the Note column
         row = table_widget.currentRow()
         track_base = (col // sub_cols) * sub_cols
         note_item = table_widget.item(row, track_base)
         has_chord = note_item and "," in (note_item.text() or "")
 
-        # ARP presets change based on chord detection
-        if has_chord:
-            arp_presets = [
-                ("↑ Up (fast)",       "04"),
-                ("↑ Up (slow)",       "08"),
-                ("↓ Down (fast)",     "14"),
-                ("↓ Down (slow)",     "18"),
-                ("↕ Ping-Pong",      "24"),
-                ("↕ Ping-Pong (slow)","28"),
-                ("🎲 Random",         "34"),
-                ("🎲 Random (slow)",  "38"),
-            ]
-            arp_desc = "Chord ARP: hi=pattern(0↑1↓2↕3🎲), lo=subdivisions"
-        else:
-            arp_presets = [
-                ("Minor 3+5", "55"), ("Major 3+5", "71"),
-                ("Octave",    "12"), ("Power 5+Oct", "124"),
-            ]
-            arp_desc = "+X,+Y semitones (hi=X, lo=Y)"
+        # Primary action: open the full FX Editor
+        editor_action = menu.addAction("🎛️ Open FX Editor...")
+        editor_action.triggered.connect(
+            lambda checked, c=fx_col_type: TrackerContextMenu._show_fx_popup(
+                table_widget, tracker_widget, c, has_chord))
 
-        # FX categories with presets
-        FX_CATEGORIES = {
-            "🎵 Pitch": [
-                ("Arpeggio",   "ARP", arp_desc, arp_presets),
-                ("Slide Up",   "SUP", "Pitch bend up (0-255 = 0-12 semitones)",
-                    [("Subtle", "21"), ("Medium", "64"), ("Deep", "128"), ("Full Octave", "255")]),
-                ("Slide Down", "SDN", "Pitch bend down (0-255 = 0-12 semitones)",
-                    [("Subtle", "21"), ("Medium", "64"), ("Deep", "128"), ("Full Octave", "255")]),
-                ("Portamento", "PRT", "Glide to next note",
-                    [("Fast", "32"), ("Medium", "96"), ("Slow", "160"), ("Very Slow", "224")]),
-                ("Detune",     "DTN", "Detune in cents",
-                    [("Slight", "8"), ("Warm", "24"), ("Wide", "64"), ("Extreme", "128")]),
-            ],
-            "🌊 Modulation": [
-                ("Vibrato",    "VIB", "hi=speed, lo=depth",
-                    [("Gentle", "36"), ("Standard", "68"), ("Fast", "100"), ("Intense", "136")]),
-                ("Tremolo",    "TRM", "hi=speed, lo=depth",
-                    [("Gentle", "35"), ("Pulse", "70"), ("Fast", "104"), ("Chop", "138")]),
-                ("Ring Mod",   "RNG", "Carrier mix amount",
-                    [("Touch", "32"), ("Metallic", "96"), ("Harsh", "160"), ("Full", "255")]),
-                ("Saturation", "SAT", "Harmonic drive / warmth",
-                    [("Warm", "32"), ("Drive", "96"), ("Crunch", "160"), ("Fuzz", "255")]),
-            ],
-            "🔊 Dynamics": [
-                ("Volume",     "VOL", "Volume level (0-255)",
-                    [("Silent", "0"), ("Quiet", "48"), ("Half", "128"), ("Full", "255")]),
-                ("Note Cut",   "CUT", "Delayed cut position",
-                    [("Quick", "32"), ("Half", "128"), ("Late", "192"), ("Near End", "240")]),
-                ("Pan",        "PAN", "Stereo position",
-                    [("Hard Left", "0"), ("Left", "64"), ("Center", "128"), ("Right", "192"), ("Hard Right", "255")]),
-                ("Retrigger",  "RTG", "Stutter gate (0-255 = 1-32 Hz)",
-                    [("Slow", "32"), ("Medium", "96"), ("Fast", "160"), ("Buzz", "255")]),
-            ],
-            "⏱ Time": [
-                ("Echo",       "ECH", "p1=delay x 50ms, p2=feedback",
-                    [("Short", "34"), ("Medium", "68"), ("Long", "104"), ("Wash", "138")]),
-                ("Delay",      "DLY", "Delay note start",
-                    [("Nudge", "16"), ("Swing", "64"), ("Half", "128"), ("Late", "192")]),
-            ],
-        }
+        menu.addSeparator()
 
-        # Conflicting FX when a chord is present (PRT still warned)
-        CHORD_CONFLICTS = {
-            "PRT": "⚠ PRT + Chord: glides each note independently — may sound muddy",
-        }
-
-        for cat_name, fx_list in FX_CATEGORIES.items():
-            cat_menu = menu.addMenu(cat_name)
-            for display_name, prefix, desc, presets in fx_list:
-                # Check for chord conflicts
-                conflict = CHORD_CONFLICTS.get(prefix) if has_chord else None
-
-                fx_sub = cat_menu.addMenu(f"{display_name}  ({prefix})")
-                fx_sub.setToolTip(desc)
-
-                if conflict and prefix == "ARP":
-                    # Disable ARP on chords entirely
-                    warn = fx_sub.addAction(conflict)
-                    warn.setEnabled(False)
-                    continue
-                elif conflict:
-                    # Show warning but allow usage
-                    warn = fx_sub.addAction(conflict)
-                    warn.setEnabled(False)
-                    fx_sub.addSeparator()
-
-                # Quick presets
-                for preset_label, dec_val in presets:
-                    fx_str = f"{prefix} {dec_val}"
-                    action = fx_sub.addAction(f"  {preset_label}  ({fx_str})")
-                    fs = fx_str
-                    ct = fx_col_type
-                    action.triggered.connect(
-                        lambda checked, f=fs, c=ct: TrackerContextMenu._set_text_on_selected(
-                            table_widget, tracker_widget, f, "#55aaff", c))
-
-                fx_sub.addSeparator()
-
-                # Custom slider option
-                custom_action = fx_sub.addAction("🔧 Custom...")
-                pfx = prefix
-                ds = desc
-                ct2 = fx_col_type
-                custom_action.triggered.connect(
-                    lambda checked, p=pfx, d=ds, c=ct2: TrackerContextMenu._show_fx_dialog(
-                        table_widget, tracker_widget, p, d, c))
+        # Quick presets for the most common effects
+        quick_menu = menu.addMenu("⚡ Quick FX")
+        quick_presets = [
+            ("Vibrato — Light", "VIB 35"),
+            ("Vibrato — Heavy", "VIB 137"),
+            ("Echo — Short", "ECH 36"),
+            ("Echo — Long", "ECH 101"),
+            ("Saturation — Warm", "SAT 40"),
+            ("Saturation — Crunch", "SAT 180"),
+            ("Volume Fade Out", "VOL 0"),
+            ("Pan Left", "PAN 0"),
+            ("Pan Center", "PAN 128"),
+            ("Pan Right", "PAN 255"),
+        ]
+        for label, fx_str in quick_presets:
+            action = quick_menu.addAction(f"  {label}  ({fx_str})")
+            fs = fx_str
+            ct = fx_col_type
+            action.triggered.connect(
+                lambda checked, f=fs, c=ct: TrackerContextMenu._set_text_on_selected(
+                    table_widget, tracker_widget, f, "#55aaff", c))
 
     @staticmethod
-    def _show_fx_dialog(table_widget, tracker_widget, prefix, description, col_type_filter):
-        """Shows a smart FX parameter dialog with per-type slider controls."""
-        from PyQt6.QtWidgets import QSpinBox
+    def _show_fx_popup(table_widget, tracker_widget, col_type_filter, has_chord=False):
+        """Launches the full FXPopupWindow with stacking support."""
+        row = table_widget.currentRow()
+        col = table_widget.currentColumn()
+        item = table_widget.item(row, col)
+        initial = item.text() if item else ""
 
-        # Define which FX use dual parameters and their labels (stored bitwise using >>4 and &0xF)
-        DUAL_PARAM_FX = {
-            "ARP": ("Pattern / +X semi", "Subdivisions / +Y semi"),
-            "VIB": ("Speed (0=off, F=fast)", "Depth (0=none, F=deep)"),
-            "TRM": ("Speed (0=off, F=fast)", "Depth (0=none, F=deep)"),
-            "ECH": ("Delay (0=short, F=long)", "Feedback (0=dry, F=wet)"),
-        }
-
-        SINGLE_BYTE_FX = {
-            "VOL": "Volume Level  (0=Silent > 255=Full)",
-            "PAN": "Stereo Position  (0=Left, 128=Center, 255=Right)",
-            "PRT": "Slide Time  (0=Fast > 255=Very Slow)",
-            "SUP": "Pitch Bend Up  (0=None > 255=Full Octave, 80% slide)",
-            "SDN": "Pitch Bend Down  (0=None > 255=Full Octave, 80% slide)",
-            "CUT": "Cut Position  (0=Immediate > 255=Near End)",
-            "DTN": "Detune  (0=None > 255=Extreme)",
-            "DLY": "Delay Start  (0=None > 255=Late)",
-            "RNG": "Ring Mod Mix  (0=Dry > 255=Full)",
-            "RTG": "Retrigger Rate  (0=Slow 1Hz > 255=Buzz 32Hz)",
-            "SAT": "Saturation  (0=Clean > 255=Heavy Fuzz)",
-        }
-
-        is_dual = prefix in DUAL_PARAM_FX
-
-        dlg = QDialog(table_widget)
-        dlg.setWindowTitle(f"{prefix} — {description}")
-        dlg.setFixedSize(360, 280 if is_dual else 200)
-        dlg.setStyleSheet("""
-            QDialog { background-color: #252526; color: #cccccc; }
-            QSlider::groove:horizontal { background: #3f3f46; height: 6px; border-radius: 3px; }
-            QSlider::handle:horizontal { background: #007acc; width: 14px; margin: -4px 0; border-radius: 7px; }
-            QLabel { color: #cccccc; }
-            QSpinBox { background-color: #333; color: #00ff88; border: 1px solid #555;
-                       font-family: 'Courier New'; font-size: 12px; padding: 2px; min-width: 45px; }
-        """)
-        layout = QVBoxLayout(dlg)
-
-        # Title
-        desc_label = QLabel(f"⚡ {prefix} — {description}")
-        desc_label.setStyleSheet("font-weight: bold; color: #55aaff; font-size: 13px;")
-        layout.addWidget(desc_label)
-
-        # Live preview
-        preview_label = QLabel("Output: -- --")
-        preview_label.setStyleSheet(
-            "font-family: 'Courier New'; font-size: 16px; color: #00ff88; font-weight: bold;")
-
-        if is_dual:
-            hi_label_text, lo_label_text = DUAL_PARAM_FX[prefix]
-
-            # --- High parameter ---
-            hi_row = QHBoxLayout()
-            hi_lbl = QLabel(f"Hi: {hi_label_text}")
-            hi_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
-            hi_slider = QSlider(Qt.Orientation.Horizontal)
-            hi_slider.setRange(0, 15)
-            hi_slider.setValue(0)
-            hi_spin = QSpinBox()
-            hi_spin.setRange(0, 15)
-            hi_row.addWidget(hi_lbl, 2)
-            hi_row.addWidget(hi_slider, 4)
-            hi_row.addWidget(hi_spin, 1)
-            layout.addLayout(hi_row)
-
-            # --- Low parameter ---
-            lo_row = QHBoxLayout()
-            lo_lbl = QLabel(f"Lo: {lo_label_text}")
-            lo_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
-            lo_slider = QSlider(Qt.Orientation.Horizontal)
-            lo_slider.setRange(0, 15)
-            lo_slider.setValue(0)
-            lo_spin = QSpinBox()
-            lo_spin.setRange(0, 15)
-            lo_row.addWidget(lo_lbl, 2)
-            lo_row.addWidget(lo_slider, 4)
-            lo_row.addWidget(lo_spin, 1)
-            layout.addLayout(lo_row)
-
-            # Sync sliders ↔ spinboxes
-            hi_slider.valueChanged.connect(hi_spin.setValue)
-            hi_spin.valueChanged.connect(hi_slider.setValue)
-            lo_slider.valueChanged.connect(lo_spin.setValue)
-            lo_spin.valueChanged.connect(lo_slider.setValue)
-
-            def _update_preview(*_):
-                combined = (hi_slider.value() << 4) | lo_slider.value()
-                preview_label.setText(f"Output: {prefix} {combined}")
-            hi_slider.valueChanged.connect(_update_preview)
-            lo_slider.valueChanged.connect(_update_preview)
-            _update_preview()
-
-            def _get_value():
-                return (hi_slider.value() << 4) | lo_slider.value()
-
-        else:
-            single_desc = SINGLE_BYTE_FX.get(prefix, "Parameter (0-255)")
-
-            param_row = QHBoxLayout()
-            param_lbl = QLabel(single_desc)
-            param_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
-            layout.addWidget(param_lbl)
-
-            val_row = QHBoxLayout()
-            val_slider = QSlider(Qt.Orientation.Horizontal)
-            val_slider.setRange(0, 255)
-            val_slider.setValue(0)
-            val_spin = QSpinBox()
-            val_spin.setRange(0, 255)
-            val_row.addWidget(val_slider, 5)
-            val_row.addWidget(val_spin, 1)
-            layout.addLayout(val_row)
-
-            # Sync slider ↔ spinbox
-            val_slider.valueChanged.connect(val_spin.setValue)
-            val_spin.valueChanged.connect(val_slider.setValue)
-
-            def _update_preview_single(*_):
-                preview_label.setText(f"Output: {prefix} {val_slider.value()}")
-            val_slider.valueChanged.connect(_update_preview_single)
-            _update_preview_single()
-
-            def _get_value():
-                return val_slider.value()
-
-        layout.addWidget(preview_label)
-
-        # OK / Cancel
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.setStyleSheet("QPushButton { background-color: #333; color: #ccc; padding: 4px 16px; }")
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        layout.addWidget(buttons)
-
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            param_str = str(_get_value())
-            fx_str = f"{prefix} {param_str}"
+        def _apply(fx_string):
             TrackerContextMenu._set_text_on_selected(
-                table_widget, tracker_widget, fx_str, "#55aaff", col_type_filter)
+                table_widget, tracker_widget, fx_string, "#55aaff", col_type_filter)
+
+        def _preview(fx_string):
+            # Use the currently modified element from the tracker
+            if hasattr(tracker_widget, 'play_cell_preview'):
+                tracker_widget.play_cell_preview(row, col, fx_override=fx_string)
+
+        # Get the instrument's FX chain for intelligent override toggling
+        inst_chain = TrackerContextMenu._get_inst_fx_chain(
+            table_widget, tracker_widget, row, col)
+
+        popup = FXPopupWindow(
+            parent=table_widget, on_apply=_apply, on_preview=_preview,
+            has_chord=has_chord, initial_value=initial, show_override=True,
+            inst_fx_chain=inst_chain)
+        popup.exec()
+
+    # --- Instrument FX chain lookup ---
+    @staticmethod
+    def _get_inst_fx_chain(table_widget, tracker_widget, row, col):
+        """Returns the instrument's fx_chain list for the track at (row, col).
+        Returns [] if unavailable."""
+        try:
+            sub_cols = tracker_widget.sub_cols
+            track_base = (col // sub_cols) * sub_cols
+            inst_col = track_base + 1  # Inst column is always offset 1
+            inst_item = table_widget.item(row, inst_col)
+            inst_name = inst_item.text().strip() if inst_item else ""
+            if not inst_name or inst_name in ["---", "--", ""]:
+                return []
+            main_win = tracker_widget.window()
+            if not main_win or not hasattr(main_win, 'workbench_container'):
+                return []
+            bank = main_win.workbench_container.bank_data
+            cat = getattr(main_win.workbench_container, 'active_category', None)
+            if cat and cat in bank and inst_name in bank[cat]:
+                entry = bank[cat][inst_name]
+                patch = entry if isinstance(entry, dict) else {}
+                return patch.get("fx_chain", [])
+        except Exception:
+            pass
+        return []
 
     # --- Clear ---
     @staticmethod
@@ -795,6 +690,34 @@ class TrackerContextMenu:
                         table_widget.setItem(row, fx1_col, item)
                     item.setText(fx_str)
                     item.setForeground(QBrush(QColor("#55aaff")))
+
+    # --- Row Selection ---
+    @staticmethod
+    def _select_row_in_track(table_widget, tracker_widget, row, track_idx):
+        """Selects all data columns for a single row within one track."""
+        from PyQt6.QtCore import QItemSelectionModel
+        sub_cols = tracker_widget.sub_cols
+        table_widget.clearSelection()
+        sel_model = table_widget.selectionModel()
+        track_base = track_idx * sub_cols
+        # Select Note, Inst, Vel, Gate, FX1, FX2 (skip spacer at offset 6)
+        for c in range(track_base, track_base + min(sub_cols, 6)):
+            idx = table_widget.model().index(row, c)
+            sel_model.select(idx, QItemSelectionModel.SelectionFlag.Select)
+
+    @staticmethod
+    def _select_row_all_tracks(table_widget, tracker_widget, row):
+        """Selects all data columns across all tracks for a given row."""
+        from PyQt6.QtCore import QItemSelectionModel
+        sub_cols = tracker_widget.sub_cols
+        num_tracks = tracker_widget.current_tracks
+        table_widget.clearSelection()
+        sel_model = table_widget.selectionModel()
+        for t in range(num_tracks):
+            track_base = t * sub_cols
+            for c in range(track_base, track_base + min(sub_cols, 6)):
+                idx = table_widget.model().index(row, c)
+                sel_model.select(idx, QItemSelectionModel.SelectionFlag.Select)
 
     # --- Smart Edit: Select Similar ---
     @staticmethod

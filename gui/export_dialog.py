@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 import os
+from engine.paths import get_export_tracks_dir, get_export_sfx_dir
 
 
 class ExportDialog(QDialog):
@@ -23,11 +24,16 @@ class ExportDialog(QDialog):
         - format (str): "wav", "ogg", or "mp3"
         - qualities (list[str]): selected quality profiles
     """
-    
-    DEFAULT_DIR = os.path.expanduser("~/Documents/Lanthorn Exports")
-    
-    def __init__(self, parent=None, title="Export Audio", default_name="untitled"):
+
+    def __init__(self, parent=None, title="Export Audio", default_name="untitled",
+                 export_type="tracks"):
         super().__init__(parent)
+        # Pick default dir based on export type
+        if export_type == "sfx":
+            default_dir = get_export_sfx_dir()
+        else:
+            default_dir = get_export_tracks_dir()
+        self._default_dir = default_dir
         self.setWindowTitle(title)
         self.setFixedSize(460, 380)
         self.setStyleSheet("""
@@ -76,7 +82,7 @@ class ExportDialog(QDialog):
         # === Export Directory ===
         dir_group = QGroupBox("Export Directory")
         dir_layout = QHBoxLayout()
-        self.dir_input = QLineEdit(self.DEFAULT_DIR)
+        self.dir_input = QLineEdit(self._default_dir)
         self.dir_input.setReadOnly(True)
         dir_layout.addWidget(self.dir_input, stretch=1)
         
@@ -166,7 +172,7 @@ class ExportDialog(QDialog):
         
         return {
             "filename": self.name_input.text().strip() or "untitled",
-            "directory": self.dir_input.text().strip() or self.DEFAULT_DIR,
+            "directory": self.dir_input.text().strip() or self._default_dir,
             "format": self.fmt_combo.currentText().lower(),
             "qualities": qualities,
         }

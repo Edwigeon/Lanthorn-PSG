@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# Lanthorn PSG v0.3.2 — PyInstaller Spec File
+# Lanthorn PSG v0.3.3 — PyInstaller Spec File
 # Builds a standalone executable for Windows or Linux
 
 import sys
@@ -30,8 +30,8 @@ a = Analysis(
     datas=[
         ('presets', 'presets'),
         ('ENGINE_SPEC.md', '.'),
-        ('lanthorn_icon.png', '.'),
-        ('lanthorn_icon.ico', '.'),
+        ('lanthorn.png', '.'),
+        ('lanthorn.ico', '.'),
         ('LICENSE', '.'),
         ('Bazaar.csv', '.'),
         ('Lanthorn.csv', '.'),
@@ -87,7 +87,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,  # No console window (GUI app)
-    icon='lanthorn_icon.ico',
+    icon='lanthorn.ico',
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

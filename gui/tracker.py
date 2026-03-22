@@ -107,6 +107,13 @@ class TrackerTableWidget(QTableWidget):
                         item.setForeground(QBrush(QColor("#55aaff")))
             return
 
+        # Shift+Up / Shift+Down: Shift note up or down in scale
+        if event.key() in [Qt.Key.Key_Up, Qt.Key.Key_Down] and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            if parent and hasattr(parent, 'shift_note'):
+                direction = 1 if event.key() == Qt.Key.Key_Up else -1
+                parent.shift_note(direction)
+                return
+
         super().keyPressEvent(event)
 
     def contextMenuEvent(self, event):
@@ -240,16 +247,18 @@ class TrackerWidget(QWidget):
         self.last_step_vel = "FF"
         self.last_step_gate = "04"
         
-        # --- V1.1 Pattern Architecture ---
         self.patterns = {}       # {"A": [[cell_texts], ...], "B": [...], ...}
         self.pattern_lengths = {"A": 64}  # Per-pattern step count
         self.pattern_meta = {}   # {"A": {"bpm": 140, "lpb": 4, "lpm": 12}, ...}
+        self.pattern_names = {"A": "A"}  # {"A": "Intro", "B": "Chorus", ...}
         self.order_list = ["A"]  # Song arrangement
         self.active_pattern = "A"  # Currently displayed pattern
         
         # Undo/Redo Stack
         self.undo_stack = QUndoStack(self)
+        self.undo_stack.setUndoLimit(300)
         self._undo_block = False  # Guard against recursive itemChanged
+        self._render_gen = 0  # Generation counter to cancel stale render threads
         
         self.init_ui()
 
@@ -452,6 +461,10 @@ class TrackerWidget(QWidget):
         rem = col % self.sub_cols
         txt = item.text()
         
+        # Color-code FX columns based on content
+        if rem in [4, 5]:
+            item.setForeground(QBrush(self._get_fx_color(txt)))
+        
         # Push undo command
         key = (row, col)
         old_text = self._old_cell_text.get(key, "---" if rem in [0, 1] else "--")
@@ -569,8 +582,6 @@ class TrackerWidget(QWidget):
             1: QColor("#ffaa00"),   # Inst
             2: QColor("#d4d4d4"),   # Vel
             3: QColor("#d4d4d4"),   # Gate
-            4: QColor("#55aaff"),   # FX1
-            5: QColor("#55aaff"),   # FX2
         }
         cols = self.current_tracks * self.sub_cols
         for row in range(self.total_steps):
@@ -591,8 +602,22 @@ class TrackerWidget(QWidget):
                         item = QTableWidgetItem(text)
                         self.table.setItem(row, col, item)
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    item.setForeground(QBrush(color_map.get(rem, QColor("#d4d4d4"))))
+                    if rem in [4, 5]:
+                        item.setForeground(QBrush(self._get_fx_color(item.text())))
+                    else:
+                        item.setForeground(QBrush(color_map.get(rem, QColor("#d4d4d4"))))
         self.refresh_beat_highlighting()
+
+    def _get_fx_color(self, text):
+        """Returns the appropriate QColor for an FX cell based on its contents."""
+        if not text or text in ["--", "---"]:
+            return QColor("#55aaff") # Default blue
+        has_vol = any(cmd in text for cmd in ["MVL", "CVL"])
+        has_pan = any(cmd in text for cmd in ["MPN", "CPN"])
+        if has_vol and has_pan: return QColor("#00ff00") # Green
+        if has_vol: return QColor("#ffff00") # Yellow
+        if has_pan: return QColor("#00bfff") # Blue
+        return QColor("#55aaff") # Default blue
 
     def add_track(self):
         """Appends a new column to the grid."""
@@ -788,6 +813,7 @@ class TrackerWidget(QWidget):
         pid = self._next_pattern_id()
         self.save_grid_to_pattern()
         self.pattern_lengths[pid] = 64
+        self.pattern_names[pid] = pid  # Default name = ID
         self.patterns[pid] = None  # Will be populated by populate_grid
         self.active_pattern = pid
         # Update combo
@@ -814,6 +840,9 @@ class TrackerWidget(QWidget):
         self.pattern_lengths[pid] = self.pattern_lengths[self.active_pattern]
         if self.active_pattern in self.pattern_meta:
             self.pattern_meta[pid] = dict(self.pattern_meta[self.active_pattern])
+        # Copy custom name with " (copy)" suffix
+        src_name = self.pattern_names.get(self.active_pattern, self.active_pattern)
+        self.pattern_names[pid] = f"{src_name} (copy)"
         # Add to combo and switch
         self.pattern_combo.blockSignals(True)
         self.pattern_combo.addItem(pid)
@@ -835,6 +864,7 @@ class TrackerWidget(QWidget):
         self.patterns.pop(pid, None)
         self.pattern_lengths.pop(pid, None)
         self.pattern_meta.pop(pid, None)
+        self.pattern_names.pop(pid, None)
         self.order_list = [x for x in self.order_list if x != pid]
         if not self.order_list:
             first = sorted(self.pattern_lengths.keys())[0]
@@ -1070,7 +1100,8 @@ class TrackerWidget(QWidget):
             # Build display text with timing info
             bpm, lpb, lpm, key, mode = self._get_pattern_timing(pid)
             beats_per_measure = lpm // lpb if lpb > 0 else 4
-            label = f"{pid}  {bpm}♪ {beats_per_measure}/{lpb}  {key} {mode}"
+            display_name = self.pattern_names.get(pid, pid)
+            label = f"{display_name}  {bpm}♪ {beats_per_measure}/{lpb}  {key} {mode}"
             item = QListWidgetItem(label)
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             if i == playing_idx:
@@ -1083,11 +1114,125 @@ class TrackerWidget(QWidget):
                 self.order_list_widget.item(playing_idx))
 
     def handle_cell_double_click(self, row, col):
-        if col % self.sub_cols == 1: # 'Inst' column
-            main_win = self.window()
-            if hasattr(main_win, 'tabs'):
-                main_win.active_tracker_cell = (row, col)
-                main_win.tabs.setCurrentIndex(0) # Jump to Sound Design tab!
+        # Double click jump to instrument was removed.
+        pass
+
+    def shift_note(self, direction):
+        """Shifts the selected tracker notes up/down within the current scale and plays the result."""
+        from engine.theory import Theory
+        sel = self.table.selectedIndexes()
+        if not sel:
+            return
+
+        # Get active key and mode
+        bpm, lpb, lpm, key, mode = self._get_pattern_timing(self.active_pattern)
+        
+        root_idx = TheoryEngineWidget.NOTE_NAMES.index(key) if key in TheoryEngineWidget.NOTE_NAMES else 0
+        active_intervals = TheoryEngineWidget.INTERVALS.get(mode, TheoryEngineWidget.INTERVALS["Chromatic"])
+        valid_indices = set((root_idx + step) % 12 for step in active_intervals)
+
+        preview_notes = [] # Collect (track_idx, midi_val) to play as a chord
+
+        self._undo_block = True
+        self.undo_stack.beginMacro("Shift Note")
+        try:
+            for idx in sel:
+                row = idx.row()
+                col = idx.column()
+                # Only shift Note columns
+                if col % self.sub_cols != 0:
+                    continue
+                
+                track_idx = col // self.sub_cols
+                
+                item = self.table.item(row, col)
+                if not item:
+                    continue
+                txt = item.text()
+                if not txt or txt in ["---", "--", "OFF", ""]:
+                    continue
+
+                # Parse current note
+                midi_val = Theory.string_to_midi(txt)
+                if midi_val < 0:
+                    continue
+
+                # Shift up or down to the next valid note in scale
+                new_midi = midi_val
+                while True:
+                    new_midi += direction
+                    if new_midi < 0 or new_midi > 127:
+                        # Revert if out of bounds
+                        new_midi = midi_val
+                        break
+                    if (new_midi % 12) in valid_indices:
+                        break
+                
+                # Even if it didn't strictly change pitch (hit bounds), add to preview
+                # Only preview notes on the user's currently active row to avoid multi-row chord chaos
+                if row == self.table.currentRow():
+                    preview_notes.append((track_idx, new_midi))
+                
+                if new_midi != midi_val:
+                    new_txt = Theory.midi_to_string(new_midi)
+                    # Manually handle undo since we are blocked
+                    old_color = QColor("#d4d4d4")
+                    new_color = item.foreground().color()
+                    cmd = TrackerEditCommand(self.table, row, col, txt, new_txt, old_color, new_color)
+                    self.undo_stack.push(cmd)
+                    
+                    item.setText(new_txt)
+        finally:
+            self.undo_stack.endMacro()
+            self._undo_block = False
+
+        if preview_notes:
+            self._play_preview_notes(preview_notes)
+
+    def _play_preview_notes(self, notes_list):
+        """Debounces and plays a list of (track_idx, midi_val) notes as a chord."""
+        if not hasattr(self, '_preview_timer'):
+            from PyQt6.QtCore import QTimer
+            self._preview_timer = QTimer(self)
+            self._preview_timer.setSingleShot(True)
+            self._preview_timer.timeout.connect(self._do_render_preview)
+        
+        self._preview_queue = notes_list
+        # Restart timer to debounce (50ms)
+        self._preview_timer.start(50)
+
+    def _do_render_preview(self):
+        notes_list = getattr(self, '_preview_queue', [])
+        if not notes_list:
+            return
+
+        main_win = self.window()
+        # Safely extract the active patch dict in the main GUI thread!
+        # Accessing workbench_container from a background thread can cause random PyQt6 C++ access violations!
+        patch = main_win.workbench_container.get_patch() if hasattr(main_win, 'workbench_container') else None
+        if not patch:
+            from engine.preset_manager import PresetManager
+            patch = PresetManager().get_default_patch()
+
+        def _render(target_patch):
+            from engine.playback import Sequencer
+            import sounddevice as sd
+            seq = Sequencer(44100)
+            
+            tracks = []
+            for track_idx, midi_val in notes_list:
+                track = {"patch": target_patch, "sequence": [{"step": 0, "note": midi_val, "velocity": 0.8, "gate": 1}]}
+                tracks.append(track)
+                
+            audio = seq.render_pattern(num_steps=1, bpm=120, tracks=tracks, apply_limiter=False)
+            try:
+                sd.play(audio, samplerate=44100)
+            except Exception:
+                pass
+                
+        import threading
+        threading.Thread(target=_render, args=(patch,), daemon=True).start()
+
     def _build_tracks_from_grid(self, grid, num_steps, bank):
         """Reads a 2D grid (list of lists) into track dicts for the Sequencer.
         Supports FX1/FX2, per-track instrument tracking, and OFF events.
@@ -1155,8 +1300,15 @@ class TrackerWidget(QWidget):
                 fx1_str = row_data[col_base + 4] if col_base + 4 < len(row_data) else ""
                 fx2_str = row_data[col_base + 5] if col_base + 5 < len(row_data) else ""
 
-                if inst_str and inst_str not in ["---", ""] and inst_str in bank:
-                    track_patch = _get_patch(bank[inst_str])
+                if inst_str and inst_str not in ["---", ""]:
+                    if inst_str in bank:
+                        track_patch = _get_patch(bank[inst_str])
+                    else:
+                        # Fallback: search bank by display name
+                        for k, v in bank.items():
+                            if isinstance(v, dict) and v.get("display", k) == inst_str:
+                                track_patch = _get_patch(v)
+                                break
 
                 try:
                     vel = int(vel_str) / 127.0 if vel_str and vel_str != "--" else 0.8
@@ -1245,6 +1397,9 @@ class TrackerWidget(QWidget):
 
     def play_current_pattern(self):
         """Renders and plays only the current pattern (not full song)."""
+        self.stop_sequence()  # Kill any in-flight renders first
+        self._render_gen += 1
+        gen = self._render_gen
         self._save_pattern_timing()
         self.save_grid_to_pattern()
         main_win = self.window()
@@ -1283,15 +1438,20 @@ class TrackerWidget(QWidget):
 
             # Schedule UI updates + playback on the main thread
             from PyQt6.QtCore import QMetaObject, Qt as QtNS, Q_ARG
-            QMetaObject.invokeMethod(self, "_on_render_done",
-                QtNS.ConnectionType.QueuedConnection,
-                Q_ARG(object, audio),
-                Q_ARG(object, step_times),
-                Q_ARG(object, step_time_values),
-                Q_ARG(object, [(active_pat, pat_len)]),
-                Q_ARG(object, current_time),
-                Q_ARG(object, pat_len),
-                Q_ARG(object, None))  # no full-song cache
+            if gen != self._render_gen:
+                return  # Stale render — a newer play was triggered
+            try:
+                QMetaObject.invokeMethod(self, "_on_render_done",
+                    QtNS.ConnectionType.QueuedConnection,
+                    Q_ARG(object, audio),
+                    Q_ARG(object, step_times),
+                    Q_ARG(object, step_time_values),
+                    Q_ARG(object, [(active_pat, pat_len)]),
+                    Q_ARG(object, current_time),
+                    Q_ARG(object, pat_len),
+                    Q_ARG(object, None))  # no full-song cache
+            except RuntimeError:
+                return  # Widget was destroyed while rendering
 
         self.statusBar_msg = "Rendering..."
         if hasattr(main_win, 'statusBar'):
@@ -1300,6 +1460,9 @@ class TrackerWidget(QWidget):
 
     def play_solo_track(self, track_idx=None):
         """Plays only the specified track (or the selected track if none given)."""
+        self.stop_sequence()  # Kill any in-flight renders first
+        self._render_gen += 1
+        gen = self._render_gen
         if track_idx is None:
             sel = self.table.selectedIndexes()
             if not sel:
@@ -1349,15 +1512,20 @@ class TrackerWidget(QWidget):
                 current_time += step_dur
 
             from PyQt6.QtCore import QMetaObject, Qt as QtNS, Q_ARG
-            QMetaObject.invokeMethod(self, "_on_render_done",
-                QtNS.ConnectionType.QueuedConnection,
-                Q_ARG(object, audio),
-                Q_ARG(object, step_times),
-                Q_ARG(object, step_time_values),
-                Q_ARG(object, [(active_pat, pat_len)]),
-                Q_ARG(object, current_time),
-                Q_ARG(object, pat_len),
-                Q_ARG(object, None))
+            if gen != self._render_gen:
+                return  # Stale render
+            try:
+                QMetaObject.invokeMethod(self, "_on_render_done",
+                    QtNS.ConnectionType.QueuedConnection,
+                    Q_ARG(object, audio),
+                    Q_ARG(object, step_times),
+                    Q_ARG(object, step_time_values),
+                    Q_ARG(object, [(active_pat, pat_len)]),
+                    Q_ARG(object, current_time),
+                    Q_ARG(object, pat_len),
+                    Q_ARG(object, None))
+            except RuntimeError:
+                return  # Widget destroyed
 
         if hasattr(main_win, 'statusBar'):
             main_win.statusBar().showMessage("Rendering solo track...")
@@ -1365,6 +1533,9 @@ class TrackerWidget(QWidget):
 
     def play_sequence(self):
         """Renders and plays the entire song via the order list."""
+        self.stop_sequence()  # Kill any in-flight renders first
+        self._render_gen += 1
+        gen = self._render_gen
         print("Master Tracker: Compiling Song from Order List...")
         self._save_pattern_timing()
         self.save_grid_to_pattern()  # Persist current grid first
@@ -1436,15 +1607,20 @@ class TrackerWidget(QWidget):
                     current_time += step_dur
 
             from PyQt6.QtCore import QMetaObject, Qt as QtNS, Q_ARG
-            QMetaObject.invokeMethod(self, "_on_render_done",
-                QtNS.ConnectionType.QueuedConnection,
-                Q_ARG(object, audio),
-                Q_ARG(object, step_times),
-                Q_ARG(object, step_time_values),
-                Q_ARG(object, play_pattern_steps),
-                Q_ARG(object, current_time),
-                Q_ARG(object, total_song_steps),
-                Q_ARG(object, audio))  # cache for looping
+            if gen != self._render_gen:
+                return  # Stale render — a newer play was triggered
+            try:
+                QMetaObject.invokeMethod(self, "_on_render_done",
+                    QtNS.ConnectionType.QueuedConnection,
+                    Q_ARG(object, audio),
+                    Q_ARG(object, step_times),
+                    Q_ARG(object, step_time_values),
+                    Q_ARG(object, play_pattern_steps),
+                    Q_ARG(object, current_time),
+                    Q_ARG(object, total_song_steps),
+                    Q_ARG(object, audio))  # cache for looping
+            except RuntimeError:
+                return  # Widget was destroyed while rendering
 
         if hasattr(main_win, 'statusBar'):
             main_win.statusBar().showMessage("Rendering song...")
@@ -1492,7 +1668,7 @@ class TrackerWidget(QWidget):
             if first_pat != self.active_pattern:
                 self.switch_pattern(first_pat)
 
-        self.table.selectRow(0)
+        self._select_and_center_row(0)
         self._start_viz_timer()
 
         main_win = self.window()
@@ -1502,6 +1678,13 @@ class TrackerWidget(QWidget):
     def playhead_tick(self):
         # Obsolete: replaced by precise perf_counter logic in _update_viz
         pass
+
+    def _select_and_center_row(self, row):
+        """Selects a row and scrolls it to the center of the visible table viewport."""
+        self.table.selectRow(row)
+        item = self.table.item(row, 0)
+        if item:
+            self.table.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
 
     def _update_viz(self):
         """Master Playhead Tick & Oscilloscope Update (runs at ~55fps)."""
@@ -1513,28 +1696,44 @@ class TrackerWidget(QWidget):
             if elapsed >= getattr(self, '_total_duration', 0.0):
                 main_win = self.window()
                 if hasattr(main_win, 'btn_loop') and main_win.btn_loop.isChecked():
-                    # Loop: replay cached audio instead of re-rendering
-                    cached = getattr(self, '_cached_full_audio', None)
-                    if cached is not None:
-                        import sounddevice as sd
-                        try:
-                            sd.play(cached, samplerate=44100)
-                        except Exception:
-                            pass
-                        self._play_start_time = time.perf_counter()
-                        self._play_pause_offset = 0.0
-                        self._play_global_step = 0
-                        self._play_pat_row = 0
-                        self._play_seq_idx = 0
-                        if self._step_times:
-                            first_pat = self._step_times[0]["pat_id"]
-                            if first_pat != self.active_pattern:
-                                self.switch_pattern(first_pat)
-                        self.table.selectRow(0)
-                        self.refresh_order_display()
+                    scope = getattr(main_win, 'loop_scope', 'project')
+                    
+                    if scope == 'project':
+                        # Loop full song: replay cached audio if available
+                        cached = getattr(self, '_cached_full_audio', None)
+                        if cached is not None:
+                            import sounddevice as sd
+                            try:
+                                sd.play(cached, samplerate=44100)
+                            except Exception:
+                                pass
+                            self._play_start_time = time.perf_counter()
+                            self._play_pause_offset = 0.0
+                            self._play_global_step = 0
+                            self._play_pat_row = 0
+                            self._play_seq_idx = 0
+                            if self._step_times:
+                                first_pat = self._step_times[0]["pat_id"]
+                                if first_pat != self.active_pattern:
+                                    self.switch_pattern(first_pat)
+                            self._select_and_center_row(0)
+                            self.refresh_order_display()
+                            return
+                        else:
+                            self.play_sequence()
+                            return
+                    elif scope == 'pattern':
+                        self.play_current_pattern()
                         return
-                    else:
-                        self.play_sequence()
+                    elif scope == 'track':
+                        # Loop the currently selected track
+                        sel = self.table.selectedIndexes()
+                        track_idx = sel[0].column() // self.sub_cols if sel else 0
+                        self.play_solo_track(track_idx)
+                        return
+                    elif scope == 'selection':
+                        # Loop from the Ctrl+L selection or current row
+                        self.loop_selection()
                         return
                 else:
                     self.stop_sequence()
@@ -1555,10 +1754,32 @@ class TrackerWidget(QWidget):
                     
                     if pat_id != self.active_pattern:
                         self.switch_pattern(pat_id)
+                        # Update the sequence index so the order list highlights correctly
+                        try:
+                            # Find the next occurrence of this pattern at or after current seq idx
+                            cur = getattr(self, '_play_seq_idx', 0)
+                            found = False
+                            for si in range(cur, len(self.order_list)):
+                                if self.order_list[si] == pat_id:
+                                    self._play_seq_idx = si
+                                    found = True
+                                    break
+                            if not found:
+                                # Wrapped around or first occurrence
+                                self._play_seq_idx = self.order_list.index(pat_id)
+                        except (ValueError, IndexError):
+                            pass
                         self.refresh_order_display()
                     
                     offset = getattr(self, '_play_from_offset', 0)
                     self.table.selectRow(self._play_pat_row + offset)
+
+                # Always re-center the active row (survives window resize/maximize)
+                offset = getattr(self, '_play_from_offset', 0)
+                target_row = self._play_pat_row + offset
+                item = self.table.item(target_row, 0)
+                if item:
+                    self.table.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
 
         # 2. Update Oscilloscope Window
         if not hasattr(self, '_rendered_audio') or self._rendered_audio is None:
@@ -1734,5 +1955,5 @@ class TrackerWidget(QWidget):
             current_time += step_duration
         self._total_duration = current_time
 
-        self.table.selectRow(start_row)
+        self._select_and_center_row(start_row)
         self._start_viz_timer()

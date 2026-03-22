@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# Lanthorn PSG v0.3.2 — Build Script
+# Lanthorn PSG v0.3.3 — Build Script
 # Builds standalone executables for the current platform
 # ============================================================
 set -e
@@ -47,7 +47,7 @@ if [ -f "dist/LanthornPSG${EXT}" ]; then
     cp -r presets/ dist/presets/
     cp ENGINE_SPEC.md dist/
     cp LICENSE dist/
-    cp lanthorn_icon.png dist/
+    cp lanthorn.png dist/
     cp lanthornpsg.desktop dist/
     mkdir -p dist/projects
     cp Bazaar.csv dist/projects/
@@ -61,11 +61,11 @@ if [ -f "dist/LanthornPSG${EXT}" ]; then
         ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
         DESKTOP_DIR="$HOME/.local/share/applications"
         mkdir -p "$ICON_DIR" "$DESKTOP_DIR"
-        cp lanthorn_icon.png "$ICON_DIR/lanthorn_icon.png"
+        cp lanthorn.png "$ICON_DIR/lanthorn.png"
 
         # Write .desktop with absolute path to binary
         FULL_EXE="$(realpath dist/LanthornPSG)"
-        FULL_ICON="$(realpath dist/lanthorn_icon.png)"
+        FULL_ICON="$(realpath dist/lanthorn.png)"
         sed "s|^Exec=.*|Exec=$FULL_EXE|;s|^Icon=.*|Icon=$FULL_ICON|" lanthornpsg.desktop > "$DESKTOP_DIR/lanthornpsg.desktop"
         chmod +x "$DESKTOP_DIR/lanthornpsg.desktop"
         echo "   ✅ Icon installed to $ICON_DIR"

@@ -18,16 +18,19 @@ from .visualizer import SfxCanvas
 from .export_dialog import ExportDialog
 from engine.csv_handler import CsvHandler
 from export.wave_baker import WaveBaker
+from engine.paths import (get_projects_dir, get_sfx_dir,
+                          get_export_tracks_dir, get_export_sfx_dir,
+                          ensure_all_dirs)
 
 class LanthornMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Lanthorn PSG v0.3.2 — Tracker & SFX Painter")
+        self.setWindowTitle("Lanthorn PSG v0.3.3 — Tracker & SFX Painter")
         self.resize(1280, 720)
 
         # Application icon — resolve for PyInstaller bundle, dist folder, or dev mode
         import os, sys
-        icon_name = 'lanthorn_icon.png'
+        icon_name = 'lanthorn.png'
         candidates = [
             os.path.join(getattr(sys, '_MEIPASS', ''), icon_name),          # PyInstaller temp
             os.path.join(os.path.dirname(sys.executable), icon_name),       # next to binary
@@ -39,6 +42,9 @@ class LanthornMainWindow(QMainWindow):
                 break
         self._current_project_path = None  # For quick-save
         self._current_sfx_path = None       # For SFX quick-save
+
+        # Ensure Lanthorn-PSG directory tree exists
+        ensure_all_dirs()
         self._unsaved_changes = False       # Dirty flag for exit confirmation
         
         # Expanded Dark Theme to include the Menu Bar styling (enforcing Monospace)
@@ -85,6 +91,9 @@ class LanthornMainWindow(QMainWindow):
         
         self.btn_loop = QPushButton("🔁 Loop")
         self.btn_loop.setCheckable(True)
+        self.btn_loop.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.btn_loop.customContextMenuRequested.connect(self._show_loop_context_menu)
+        self.loop_scope = "project"  # Default scope: project, pattern, track, selection
         
         for btn in [btn_play, btn_pause, btn_stop, self.btn_loop]:
             btn.setStyleSheet("background-color: #3f3f46; color: white; padding: 5px; font-weight: bold;")
@@ -159,6 +168,41 @@ class LanthornMainWindow(QMainWindow):
         if hasattr(self, 'tracker_container') and hasattr(self.tracker_container, 'stop_sequence'):
             self.tracker_container.stop_sequence()
 
+    def _show_loop_context_menu(self, pos):
+        """Right-click context menu on the Loop button for scope selection."""
+        from PyQt6.QtWidgets import QMenu
+        menu = QMenu(self.btn_loop)
+        menu.setStyleSheet("""
+            QMenu { background-color: #2d2d30; color: #cccccc; border: 1px solid #3f3f46; }
+            QMenu::item:selected { background-color: #007acc; color: white; }
+        """)
+
+        scopes = [
+            ("🔁 Loop Project (full song)", "project"),
+            ("🔁 Loop Pattern", "pattern"),
+            ("🔁 Loop Track (solo)", "track"),
+            ("🔁 Loop Selection", "selection"),
+        ]
+        for label, scope in scopes:
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(self.loop_scope == scope)
+            s = scope
+            action.triggered.connect(lambda checked, sc=s: self._set_loop_scope(sc))
+
+        menu.exec(self.btn_loop.mapToGlobal(pos))
+
+    def _set_loop_scope(self, scope):
+        self.loop_scope = scope
+        scope_labels = {
+            "project": "🔁 Loop",
+            "pattern": "🔁 Loop Pat",
+            "track": "🔁 Loop Trk",
+            "selection": "🔁 Loop Sel",
+        }
+        self.btn_loop.setText(scope_labels.get(scope, "🔁 Loop"))
+        self.btn_loop.setChecked(True)
+
     def create_menu_bar(self):
         """Builds the top utility dropdown menus."""
         menu_bar = self.menuBar()
@@ -231,6 +275,13 @@ class LanthornMainWindow(QMainWindow):
         save_shortcut.triggered.connect(self.quick_save)
         self.addAction(save_shortcut)
 
+        # ─── RETRO VISUALIZER MENU ───
+        viz_menu = menu_bar.addMenu("RetroVisualizer")
+        viz_launch = QAction("🖥️ Launch Retro Visualizer...", self)
+        viz_launch.setStatusTip("Open the retro project player")
+        viz_launch.triggered.connect(self._launch_retro_visualizer)
+        viz_menu.addAction(viz_launch)
+
         # ─── HELP MENU ───
         help_menu = menu_bar.addMenu("Help")
 
@@ -250,9 +301,23 @@ class LanthornMainWindow(QMainWindow):
         QMessageBox.about(self, "About Lanthorn PSG",
             "<h2>Lanthorn PSG</h2>"
             "<p>Programmable Sound Generator<br>Tracker &amp; SFX Painter</p>"
-            "<p><b>Version 0.3.2</b></p>"
+            "<p><b>Version 0.3.3</b></p>"
             "<p>Created by Edwigeon<br>Open Source · MIT License</p>"
         )
+
+    def _launch_retro_visualizer(self):
+        """Auto-saves if needed, then opens the Retro Visualizer launch dialog."""
+        # Auto-save current project to a temp path if no save path exists
+        csv_path = getattr(self, '_current_project_path', None)
+        if not csv_path and hasattr(self, '_unsaved_changes') and self._unsaved_changes:
+            import tempfile
+            csv_path = os.path.join(tempfile.gettempdir(), "_lanthorn_viz_temp.csv")
+            self._save_to_path(csv_path)
+        elif csv_path and hasattr(self, '_unsaved_changes') and self._unsaved_changes:
+            self._save_to_path(csv_path)
+
+        from gui.retro_visualizer import launch_visualizer
+        self._retro_viz_window = launch_visualizer(csv_path, self)
 
     def new_project(self):
         """Resets everything to a blank project."""
@@ -270,13 +335,15 @@ class LanthornMainWindow(QMainWindow):
         tracker.patterns = {"A": None}
         tracker.pattern_lengths = {"A": 64}
         tracker.pattern_meta = {}  # Clear stale per-pattern timing
+        tracker.pattern_names = {"A": "A"}  # Reset custom names
         tracker.order_list = ["A"]
         tracker.active_pattern = "A"
+        tracker.sequencer_data = []  # Clear sequencer timeline
         tracker.total_steps = 64
         tracker.current_tracks = 4
         tracker.pattern_combo.blockSignals(True)
         tracker.pattern_combo.clear()
-        tracker.pattern_combo.addItem("A")
+        tracker.pattern_combo.addItem("A", "A")  # (display, userData=pattern_id)
         tracker.pattern_combo.blockSignals(False)
         tracker.spin_pat_len.blockSignals(True)
         tracker.spin_pat_len.setValue(64)
@@ -311,7 +378,9 @@ class LanthornMainWindow(QMainWindow):
         self.statusBar().showMessage("New project created.")
 
     def load_project(self):
-        filename, _ = QFileDialog.getOpenFileName(self, "Load Lanthorn Project", "", "CSV Files (*.csv);;All Files (*)")
+        filename, _ = QFileDialog.getOpenFileName(self, "Load Lanthorn Project",
+                                                    get_projects_dir(),
+                                                    "CSV Files (*.csv);;All Files (*)")
         if filename:
             tracker = self.tracker_container
             workbench = self.workbench_container
@@ -326,7 +395,9 @@ class LanthornMainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error Loading Project", msg)
 
     def save_project(self):
-        filename, _ = QFileDialog.getSaveFileName(self, "Save Lanthorn Project", "", "CSV Files (*.csv);;All Files (*)")
+        filename, _ = QFileDialog.getSaveFileName(self, "Save Lanthorn Project",
+                                                    get_projects_dir(),
+                                                    "CSV Files (*.csv);;All Files (*)")
         if filename:
             if not filename.endswith('.csv'):
                 filename += '.csv'
@@ -360,7 +431,8 @@ class LanthornMainWindow(QMainWindow):
 
     def export_tracker_audio(self):
         """Renders the full song (all patterns via order list) and exports."""
-        dlg = ExportDialog(self, title="Export Tracker Audio", default_name="tracker_export")
+        dlg = ExportDialog(self, title="Export Tracker Audio",
+                           default_name="tracker_export", export_type="tracks")
         if dlg.exec() != ExportDialog.DialogCode.Accepted:
             return
 
@@ -434,7 +506,8 @@ class LanthornMainWindow(QMainWindow):
 
     def export_sfx_audio(self):
         """Renders the SFX Painter canvas and exports via ExportDialog."""
-        dlg = ExportDialog(self, title="Export SFX", default_name="sfx_export")
+        dlg = ExportDialog(self, title="Export SFX",
+                           default_name="sfx_export", export_type="sfx")
         if dlg.exec() != ExportDialog.DialogCode.Accepted:
             return
         
@@ -505,7 +578,7 @@ class LanthornMainWindow(QMainWindow):
         # Mark project dirty when tracker cells are edited
         self.tracker_container.table.cellChanged.connect(self._mark_dirty)
         # Update status bar context when switching tabs
-        self.tabs.currentChanged.connect(lambda _: self._update_status_context())
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
         # Add Bottom Status Bar
         self._update_status_context()
@@ -517,7 +590,8 @@ class LanthornMainWindow(QMainWindow):
     def save_sfx_project(self):
         """Save the SFX Painter canvas to a .sfx.csv file."""
         filename, _ = QFileDialog.getSaveFileName(
-            self, "Save SFX Canvas", "", "SFX Files (*.sfx.csv);;All Files (*)")
+            self, "Save SFX Canvas", get_sfx_dir(),
+            "SFX Files (*.sfx.csv);;All Files (*)")
         if not filename:
             return
         if not filename.endswith('.sfx.csv'):
@@ -538,7 +612,8 @@ class LanthornMainWindow(QMainWindow):
     def load_sfx_project(self):
         """Load an SFX Painter canvas from a .sfx.csv file."""
         filename, _ = QFileDialog.getOpenFileName(
-            self, "Load SFX Canvas", "", "SFX Files (*.sfx.csv);;CSV Files (*.csv);;All Files (*)")
+            self, "Load SFX Canvas", get_sfx_dir(),
+            "SFX Files (*.sfx.csv);;CSV Files (*.csv);;All Files (*)")
         if not filename:
             return
 
@@ -609,7 +684,6 @@ class LanthornMainWindow(QMainWindow):
                 "<tr><td style='color:#00ffaa;'>OSC 1 buttons</td><td>Primary waveform: Sine, Square, Sawtooth, Triangle, Noise</td></tr>"
                 "<tr><td style='color:#00ffaa;'>OSC 2 buttons</td><td>Secondary waveform (dual oscillator)</td></tr>"
                 "<tr><td style='color:#00ffaa;'>Mix slider</td><td>Blend ratio between OSC 1 and OSC 2</td></tr>"
-                "<tr><td style='color:#00ffaa;'>Duty Cycle</td><td>Pulse width for square wave (0.0-1.0)</td></tr>"
                 "</table>"
                 "<h3 style='color:#55aaff;'>Envelope (ADSR)</h3>"
                 "<table cellpadding='3'>"
@@ -618,8 +692,8 @@ class LanthornMainWindow(QMainWindow):
                 "<tr><td style='color:#00ffaa;'>Sustain</td><td>Volume during held note (0.0-1.0)</td></tr>"
                 "<tr><td style='color:#00ffaa;'>Release</td><td>Fade out time after note ends</td></tr>"
                 "</table>"
-                "<h3 style='color:#55aaff;'>Modulation Rack</h3>"
-                "<p>Click <b style='color:#00ff88;'>+ Add Element</b> to add modifiers:</p>"
+                "<h3 style='color:#55aaff;'>FX Chain (Modulation Rack)</h3>"
+                "<p>Click <b style='color:#00ff88;'>Edit FX Chain</b> to build a stack of effects:</p>"
                 "<table cellpadding='3'>"
                 "<tr><td style='color:#00ffaa;'>Vibrato</td><td>Pitch wobble (speed + depth)</td></tr>"
                 "<tr><td style='color:#00ffaa;'>Tremolo</td><td>Volume pulsing</td></tr>"
@@ -627,11 +701,14 @@ class LanthornMainWindow(QMainWindow):
                 "<tr><td style='color:#00ffaa;'>Bit Crush</td><td>Lo-fi (16=clean, 8=NES, 4=extreme)</td></tr>"
                 "<tr><td style='color:#00ffaa;'>Echo</td><td>Delay + feedback</td></tr>"
                 "<tr><td style='color:#00ffaa;'>Ring Mod</td><td>Metallic/bell tones</td></tr>"
-                "<tr><td style='color:#00ffaa;'>Pitch Slide</td><td>Pitch bend over time</td></tr>"
+                "<tr><td style='color:#00ffaa;'>Detune</td><td>Slight pitch offset for thickness</td></tr>"
                 "<tr><td style='color:#00ffaa;'>Retrigger</td><td>Stutter gate effect</td></tr>"
                 "<tr><td style='color:#00ffaa;'>Portamento</td><td>Glide between notes</td></tr>"
                 "</table>"
-                "<p>\u2699\ufe0f to edit, X to remove. Preview plays with all active FX.</p>"
+                "<p>Click an FX item to edit, \u2715 to remove.</p>"
+                "<h3 style='color:#55aaff;'>Test Patch</h3>"
+                "<p>Category buttons (Bass, Lead, Pad, Arp, Drums, SFX) play test phrases.<br>"
+                "Pad test plays a chord progression with melody notes.</p>"
                 "<h3 style='color:#55aaff;'>Instrument Bank</h3>"
                 "<table cellpadding='3'>"
                 "<tr><td style='color:#00ffaa;'>+ New</td><td>Save current knobs as new preset</td></tr>"
@@ -653,57 +730,42 @@ class LanthornMainWindow(QMainWindow):
                 "<tr><td style='color:#00ff88;'>Shift+Click</td><td>Select range</td></tr>"
                 "<tr><td style='color:#00ff88;'>Ctrl+Click</td><td>Multi-select</td></tr>"
                 "<tr><td style='color:#00ff88;'>Delete / Backspace</td><td>Clear cells to defaults</td></tr>"
-                "<tr><td style='color:#00ff88;'>Ctrl+Z / Ctrl+Y</td><td>Undo / Redo</td></tr>"
+                "<tr><td style='color:#00ff88;'>Ctrl+Z / Ctrl+Y</td><td>Undo / Redo (300 actions)</td></tr>"
                 "<tr><td style='color:#00ff88;'>Ctrl+L</td><td>Loop selection (clone N times)</td></tr>"
                 "<tr><td style='color:#00ff88;'>Enter (on FX)</td><td>FX Interpolation Sweep</td></tr>"
+                "<tr><td style='color:#00ff88;'>Shift+\u2191</td><td>Shift note up (scale-aware)</td></tr>"
+                "<tr><td style='color:#00ff88;'>Shift+\u2193</td><td>Shift note down (scale-aware)</td></tr>"
                 "</table>"
+                "<p style='color:#888; font-size:11px;'>"
+                "<b>Shift+\u2191/\u2193</b> snaps notes to the pattern's key &amp; scale. "
+                "Plays a debounced preview on each shift. Safe to hold.</p>"
                 "<h3 style='color:#55aaff;'>Column Types (per track)</h3>"
                 "<table cellpadding='3'>"
                 "<tr><td style='color:#00ff00; width:60px;'>Note</td><td>C-4, G#5, OFF, or chords: C-4,E-4,G-4</td></tr>"
                 "<tr><td style='color:#ffaa00;'>Inst</td><td>Instrument name from bank</td></tr>"
-                "<tr><td style='color:#d4d4d4;'>Vel</td><td>Velocity 0-127 (decimal)</td></tr>"
+                "<tr><td style='color:#d4d4d4;'>Vel</td><td>Velocity 0-255</td></tr>"
                 "<tr><td style='color:#d4d4d4;'>Gate</td><td>Gate length in steps (decimal)</td></tr>"
                 "<tr><td style='color:#55aaff;'>FX1/FX2</td><td>FX command: VIB 3A, SUP 40, PAN 80</td></tr>"
                 "</table>"
-                "<h3 style='color:#55aaff;'>Toolbar Buttons</h3>"
+                "<h3 style='color:#55aaff;'>Playback</h3>"
+                "<table cellpadding='3'>"
+                "<tr><td style='color:#00ffaa; width:140px;'>\u25b6 Pat / \u25b6 Solo</td><td>Play pattern or solo track</td></tr>"
+                "<tr><td style='color:#00ffaa;'>Shift+Space</td><td>Play from cursor row</td></tr>"
+                "<tr><td style='color:#00ffaa;'>\ud83d\udd01 Loop</td><td>Toggle loop (R-click: Project/Pattern/Track/Selection)</td></tr>"
+                "</table>"
+                "<h3 style='color:#55aaff;'>Patterns</h3>"
                 "<table cellpadding='3'>"
                 "<tr><td style='color:#00ffaa;'>+ New</td><td>Create new empty pattern</td></tr>"
                 "<tr><td style='color:#00ffaa;'>\u29c9 Clone</td><td>Duplicate current pattern</td></tr>"
-                "<tr><td style='color:#00ffaa;'>\u2715 Del</td><td>Delete current pattern</td></tr>"
+                "<tr><td style='color:#00ffaa;'>Custom Names</td><td>Right-click pattern to rename</td></tr>"
                 "<tr><td style='color:#00ffaa;'>Steps spinner</td><td>Set step count (8-128)</td></tr>"
-                "<tr><td style='color:#00ffaa;'>+ / - tracks</td><td>Add or remove tracks (1-16)</td></tr>"
-                "<tr><td style='color:#00ffaa;'>\u25b6 Pat</td><td>Play current pattern only</td></tr>"
-                "<tr><td style='color:#00ffaa;'>\u25b6 Solo</td><td>Solo the selected track</td></tr>"
-                "<tr><td style='color:#00ffaa;'>+ Seq / - Seq</td><td>Add/remove from order list</td></tr>"
-                "<tr><td style='color:#00ffaa;'>SeqEdit</td><td>Open Sequence Editor dialog</td></tr>"
                 "</table>"
-                "<h3 style='color:#55aaff;'>Right-Click Context Menu</h3>"
+                "<h3 style='color:#55aaff;'>Right-Click Menu</h3>"
                 "<table cellpadding='3'>"
-                "<tr><td style='color:#ffaa00; width:80px;'>Note</td><td>Notes, OFF, Chords (Maj, Min, 7th, Sus, Dim, Aug)</td></tr>"
-                "<tr><td style='color:#ffaa00;'>Inst</td><td>\U0001f3b9 Patches \u2192 browse by folder (\U0001f4c1 bass, drums, keys...)</td></tr>"
-                "<tr><td style='color:#ffaa00;'>Vel</td><td>Presets: pp, p, mf, f, ff, Max</td></tr>"
-                "<tr><td style='color:#ffaa00;'>Gate</td><td>Presets: 1, 2, 4, 8, 16 steps</td></tr>"
-                "<tr><td style='color:#ffaa00;'>FX</td><td>Categorized FX + custom dial</td></tr>"
-                "<tr><td style='color:#ffaa00;'>Any</td><td>\u25b6 Play, \U0001f4cb Copy/Paste, \U0001f9e0 Smart Edit, \U0001f5d1 Clear</td></tr>"
-                "</table>"
-                "<h3 style='color:#55aaff;'>\U0001f9e0 Smart Edit</h3>"
-                "<table cellpadding='3'>"
-                "<tr><td style='color:#00ffaa;'>\U0001f517 Edit Similar</td>"
-                "<td>Batch change Vel/Gate/FX on all rows with same patch</td></tr>"
-                "<tr><td style='color:#00ffaa;'>\U0001f3af Select Similar</td>"
-                "<td>Highlight all rows with same instrument</td></tr>"
-                "<tr><td style='color:#00ffaa;'>\U0001f504 Fill Pattern</td>"
-                "<td>Tile selected block through entire pattern</td></tr>"
-                "<tr><td style='color:#00ffaa;'>\U0001f4d0 Repeat Selection</td>"
-                "<td>Extend row selection pattern (e.g. every 4th row)</td></tr>"
-                "</table>"
-                "<h3 style='color:#55aaff;'>Sequence Editor</h3>"
-                "<table cellpadding='3'>"
-                "<tr><td style='color:#00ffaa;'>Add / Insert</td><td>Append or insert pattern entry</td></tr>"
-                "<tr><td style='color:#00ffaa;'>Duplicate</td><td>Copy sequence entry</td></tr>"
-                "<tr><td style='color:#00ffaa;'>Remove</td><td>Delete entry (keep \u2265 1)</td></tr>"
-                "<tr><td style='color:#00ffaa;'>\u25b2 Up / \u25bc Down</td><td>Reorder entries</td></tr>"
-                "<tr><td style='color:#00ffaa;'>Apply</td><td>Commit new order</td></tr>"
+                "<tr><td style='color:#ffaa00; width:60px;'>Note</td><td>Notes, OFF, Chords</td></tr>"
+                "<tr><td style='color:#ffaa00;'>Inst</td><td>Browse patches by folder</td></tr>"
+                "<tr><td style='color:#ffaa00;'>Vel</td><td>Presets: pp, p, mf, f, ff</td></tr>"
+                "<tr><td style='color:#ffaa00;'>FX</td><td>FX Editor + quick presets</td></tr>"
                 "</table>"
             )
 
@@ -723,10 +785,20 @@ class LanthornMainWindow(QMainWindow):
                 "Each layer can have different waveforms.</p>"
                 "<h3 style='color:#55aaff;'>File</h3>"
                 "<p>Save/Load via File menu using <code>.sfx.csv</code> format.<br>"
-                "Independent from tracker projects.</p>"
+                "Default path: <code>Documents/Lanthorn-PSG/SFX/</code></p>"
             )
 
         html += (
+            "<hr style='border: 1px solid #3f3f46;'>"
+            "<h3 style='color:#55aaff;'>Retro Visualizer</h3>"
+            "<table cellpadding='2'>"
+            "<tr><td style='color:#00ff88; width:80px;'>Space</td><td>Play / Pause</td></tr>"
+            "<tr><td style='color:#00ff88;'>Enter</td><td>Reset to start</td></tr>"
+            "<tr><td style='color:#00ff88;'>\u2190 / \u2192</td><td>Cycle themes</td></tr>"
+            "<tr><td style='color:#00ff88;'>W</td><td>Cycle window modes</td></tr>"
+            "<tr><td style='color:#00ff88;'>F11</td><td>Toggle fullscreen</td></tr>"
+            "<tr><td style='color:#00ff88;'>ESC</td><td>Close visualizer</td></tr>"
+            "</table>"
             "<hr style='border: 1px solid #3f3f46;'>"
             "<h3 style='color:#55aaff;'>FX Quick Reference</h3>"
             "<table cellpadding='2' style='font-size:11px;'>"
@@ -742,7 +814,16 @@ class LanthornMainWindow(QMainWindow):
             "<tr><td style='color:#55aaff;'>PAN</td><td>Pan</td>"
             "<td style='color:#55aaff;'>RNG</td><td>Ring Mod</td>"
             "<td style='color:#55aaff;'>RTG</td><td>Retrigger</td></tr>"
+            "<tr><td style='color:#55aaff;'>SAT</td><td>Saturation</td>"
+            "<td style='color:#55aaff;'>DTN</td><td>Detune</td>"
+            "<td style='color:#55aaff;'>DLY</td><td>Delay</td></tr>"
+            "<tr><td style='color:#55aaff;'>ENV</td><td>Envelope</td>"
+            "<td style='color:#55aaff;'>LOF</td><td>Lo-Fi</td>"
+            "<td></td><td></td></tr>"
             "</table>"
+            "<hr style='border: 1px solid #3f3f46;'>"
+            "<p style='font-size:11px; color:#888;'>Files: <code>Documents/Lanthorn-PSG/</code> "
+            "(Projects, SFX, Exports/Tracks, Exports/SFX)</p>"
         )
 
         text.setHtml(html)
@@ -779,7 +860,7 @@ class LanthornMainWindow(QMainWindow):
         # Default Export Directory
         export_dir = QLineEdit(
             getattr(self, '_default_export_dir',
-                    os.path.expanduser("~/Documents/Lanthorn Exports")))
+                    get_export_tracks_dir()))
         layout.addRow("Export Directory:", export_dir)
 
         # Buttons
@@ -822,6 +903,10 @@ class LanthornMainWindow(QMainWindow):
                 event.ignore()
         else:
             event.accept()
+
+    def _on_tab_changed(self, index):
+        """Called whenever the user switches tabs."""
+        self._update_status_context()
 
     def _update_status_context(self):
         """Show the current project or SFX name in the status bar."""

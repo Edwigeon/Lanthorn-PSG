@@ -12,6 +12,7 @@ from PyQt6.QtGui import QFont, QIcon
 
 from engine.oscillator import Oscillator
 from engine.modifiers import Modifiers
+from .fx_ui_manager import FXPopupWindow
 
 # ==========================================
 # 1. THE FLOATING MODULATION WINDOW (ADSR)
@@ -217,6 +218,7 @@ class WorkbenchWidget(QWidget):
         
         self.env_data = {"attack": 0.05, "decay": 0.2, "sustain": 0.5, "release": 0.3}
         self.active_windows = {}
+        self.active_category = None  # Tracks which test was last used for context-aware saving
 
         self.init_ui()
         self.update_oscilloscope()
@@ -294,29 +296,27 @@ class WorkbenchWidget(QWidget):
         rack_group = QGroupBox("Modulation Rack")
         rack_group.setStyleSheet("color: #cccccc;")
         self.rack_layout = QVBoxLayout()
-        
-        add_layout = QHBoxLayout()
-        self.mod_selector = QComboBox()
-        self.mod_selector.addItems([
-            "ADSR Envelope", "LFO Vibrato", "LFO Tremolo",
-            "Pitch Slide", "LoFi (Bitcrush)", "RingMod",
-            "Echo Delay", "Retrigger", "Portamento",
-            "Saturation", "Detune", "Delay"
-        ])
-        
-        add_btn = QPushButton("+ Add Element")
-        add_btn.setStyleSheet("background-color: #007acc; color: white; font-weight: bold;")
-        add_btn.clicked.connect(lambda _: self.add_modulator())
-        
-        add_layout.addWidget(self.mod_selector)
-        add_layout.addWidget(add_btn)
-        self.rack_layout.addLayout(add_layout)
-        
+
+        # "Edit FX Chain..." button opens the unified FX Editor
+        edit_chain_btn = QPushButton("🎛️ Edit FX Chain...")
+        edit_chain_btn.setToolTip("Open the FX Editor to build and edit your effect chain")
+        edit_chain_btn.setStyleSheet(
+            "background-color: #264f78; color: #55aaff; font-weight: bold; padding: 6px;")
+        edit_chain_btn.clicked.connect(lambda: self._open_rack_fx_editor())
+        self.rack_layout.addWidget(edit_chain_btn)
+
         self.active_mods_layout = QVBoxLayout()
         self.rack_layout.addLayout(self.active_mods_layout)
         self.rack_layout.addStretch()
 
         rack_group.setLayout(self.rack_layout)
+
+        # FX chain storage: list of fx_string items (e.g. ["VIB 68", "SAT 40"])
+        self._rack_fx_chain = []
+
+        # Reverse lookup: FX code → human-readable name
+        from .fx_ui_manager import FX_CATALOG
+        self.FX_CODE_TO_NAME = {code: info["name"] for code, info in FX_CATALOG.items()}
 
         # --- 4. INSTRUMENT BANK ---
         bank_group = QGroupBox("Instrument Bank")
@@ -361,7 +361,7 @@ class WorkbenchWidget(QWidget):
         
         btn_layout = QHBoxLayout()
         add_btn = QPushButton("+ New")
-        add_btn.setToolTip("Create a new instrument from current settings")
+        add_btn.setToolTip("Create a new blank instrument")
         add_btn.setStyleSheet("background-color: #3f3f46;")
         add_btn.clicked.connect(lambda _: self.add_instrument())
 
@@ -374,6 +374,11 @@ class WorkbenchWidget(QWidget):
         save_btn.setToolTip("Store current knob settings into the selected instrument")
         save_btn.setStyleSheet("background-color: #3f3f46;")
         save_btn.clicked.connect(lambda _: self.save_instrument())
+
+        save_as_btn = QPushButton("↑ Save As")
+        save_as_btn.setToolTip("Save current settings as a new instrument with a new name")
+        save_as_btn.setStyleSheet("background-color: #3f3f46;")
+        save_as_btn.clicked.connect(lambda _: self.save_instrument_as())
 
         load_btn = QPushButton("↓ Recall")
         load_btn.setToolTip("Recall the selected instrument's settings into the knobs")
@@ -388,6 +393,7 @@ class WorkbenchWidget(QWidget):
         btn_layout.addWidget(add_btn)
         btn_layout.addWidget(folder_btn)
         btn_layout.addWidget(save_btn)
+        btn_layout.addWidget(save_as_btn)
         btn_layout.addWidget(load_btn)
         btn_layout.addWidget(del_btn)
         bank_layout.addLayout(btn_layout)
@@ -400,6 +406,30 @@ class WorkbenchWidget(QWidget):
         lower_layout.addWidget(bank_group, stretch=1)
         
         layout.addLayout(lower_layout, stretch=2)
+
+        # --- 5. CONTEXTUAL TEST BUTTONS ---
+        test_group = QGroupBox("Test Patch")
+        test_group.setStyleSheet("color: #cccccc;")
+        test_layout = QHBoxLayout()
+
+        test_categories = [
+            ("🎸 Bass",  "bass"),
+            ("🎹 Lead",  "leads"),
+            ("🌊 Pad",   "pads"),
+            ("🎶 Arp",   "keys"),
+            ("🥁 Drums", "drums"),
+            ("⚡ SFX",   "sfx"),
+        ]
+        for label, cat in test_categories:
+            btn = QPushButton(label)
+            btn.setStyleSheet(
+                "background-color: #333; color: #ccc; padding: 4px 8px; font-size: 11px;")
+            btn.setToolTip(f"Play a {cat}-style test phrase")
+            btn.clicked.connect(lambda checked, c=cat: self.play_test(c))
+            test_layout.addWidget(btn)
+
+        test_group.setLayout(test_layout)
+        layout.addWidget(test_group)
 
     def _populate_bank_tree(self):
         """Populates the QTreeWidget from bank_data, grouping by folder."""
@@ -464,57 +494,140 @@ class WorkbenchWidget(QWidget):
                 return pkey.replace("__folder__:", "")
         return None
 
-    def add_modulator(self, mod_type=None, show_window=True):
-        if mod_type is None:
-            mod_type = self.mod_selector.currentText()
-        if mod_type in self.active_windows:
+    def _open_rack_fx_editor(self):
+        """Opens the unified FX Editor pre-loaded with the current rack chain."""
+        initial = " : ".join(self._rack_fx_chain) if self._rack_fx_chain else ""
+
+        def _on_apply(fx_string):
+            self._apply_fx_chain(fx_string)
+
+        def _on_preview(fx_string):
+            self._fx_preview_handler(fx_string)
+
+        popup = FXPopupWindow(
+            parent=self, on_apply=_on_apply, on_preview=_on_preview,
+            initial_value=initial)
+
+        # Pre-populate the stack list from current chain
+        if self._rack_fx_chain:
+            popup.stack_list.clear()
+            for item in self._rack_fx_chain:
+                popup.stack_list.addItem(item)
+            popup._update_preview()
+
+        popup.exec()
+
+    def _edit_rack_item(self, index):
+        """Opens the FX Editor to edit a single existing item in the chain."""
+        if index < 0 or index >= len(self._rack_fx_chain):
+            return
+        fx_item = self._rack_fx_chain[index]
+
+        def _on_apply(fx_string):
+            # Replace just this one item (take only the first FX if user stacked)
+            items = [s.strip() for s in fx_string.split(":") if s.strip() and s.strip() != "--"]
+            if items:
+                self._rack_fx_chain[index] = items[0]
+            self._rebuild_rack_display()
+            self.update_oscilloscope()
+            # Sync ENV if needed
+            code = items[0].split()[0] if items else ""
+            if code == "ENV":
+                self._sync_fx_to_generic("__env__", items[0])
+
+        def _on_preview(fx_string):
+            self._fx_preview_handler(fx_string)
+
+        popup = FXPopupWindow(
+            parent=self, on_apply=_on_apply, on_preview=_on_preview,
+            initial_value=fx_item)
+
+        # Clear the stack — we're editing a single item, not building a chain
+        popup.stack_list.clear()
+        popup._update_preview()
+
+        popup.exec()
+
+    def _apply_fx_chain(self, fx_string):
+        """Applies the FX Editor result to the rack chain and rebuilds the display."""
+        if fx_string and fx_string != "--":
+            self._rack_fx_chain = [item.strip() for item in fx_string.split(":") if item.strip()]
+        else:
+            self._rack_fx_chain = []
+
+        # Sync each effect to backward-compat data (env_data, active_windows etc.)
+        for fx_item in self._rack_fx_chain:
+            parts = fx_item.strip().split()
+            if len(parts) >= 2:
+                code = parts[0]
+                # Sync ENV to env_data
+                if code == "ENV":
+                    self._sync_fx_to_generic("__env__", fx_item)
+                else:
+                    self._sync_fx_to_generic(code, fx_item)
+
+        self._rebuild_rack_display()
+        self.update_oscilloscope()
+
+    def _rebuild_rack_display(self):
+        """Rebuilds the visual rack items from `_rack_fx_chain`."""
+        # Clear existing items
+        while self.active_mods_layout.count():
+            child = self.active_mods_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        if not self._rack_fx_chain:
+            empty_label = QLabel("  No effects — click Edit FX Chain to add")
+            empty_label.setStyleSheet("color: #555; font-style: italic; padding: 4px;")
+            self.active_mods_layout.addWidget(empty_label)
             return
 
-        mod_container = QWidget()
-        mod_layout = QHBoxLayout(mod_container)
-        mod_layout.setContentsMargins(0, 0, 0, 0)
-        
-        open_btn = QPushButton(f"⚙️ {mod_type}")
-        open_btn.setStyleSheet("text-align: left; padding: 5px;")
-        open_btn.clicked.connect(lambda: self.open_mod_window(mod_type))
-        
-        remove_btn = QPushButton("X")
-        remove_btn.setFixedWidth(30)
-        remove_btn.setStyleSheet("background-color: #A52A2A;")
-        remove_btn.clicked.connect(lambda: self.remove_modulator(mod_type, mod_container))
-        
-        mod_layout.addWidget(open_btn)
-        mod_layout.addWidget(remove_btn)
-        
-        self.active_mods_layout.addWidget(mod_container)
-        self.active_windows[mod_type] = {"container": mod_container, "window": None}
-        if show_window:
-            self.open_mod_window(mod_type)
+        for i, fx_item in enumerate(self._rack_fx_chain):
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(2, 1, 2, 1)
 
-    def remove_modulator(self, mod_type, container_widget):
-        if self.active_windows[mod_type]["window"]:
-            self.active_windows[mod_type]["window"].close()
-        container_widget.deleteLater()
-        del self.active_windows[mod_type]
+            # Readable label: "VIB 68" → "🌊 Vibrato  (68)"
+            label_text = self._fx_label_for_code(fx_item)
+            item_btn = QPushButton(label_text)
+            item_btn.setStyleSheet(
+                "text-align: left; padding: 4px 8px; background-color: #2d2d30;"
+                "color: #55aaff; border: 1px solid #3f3f46; border-radius: 3px;")
+            item_btn.setToolTip(f"Click to edit  •  {fx_item}")
+            item_btn.clicked.connect(lambda checked=False, ix=i: self._edit_rack_item(ix))
 
-    def open_mod_window(self, mod_type):
-        if self.active_windows[mod_type]["window"]:
-            self.active_windows[mod_type]["window"].show()
-            self.active_windows[mod_type]["window"].raise_()
-            return
-            
-        if mod_type == "ADSR Envelope":
-            win = EnvelopeWindow(workbench=self)
-            self.active_windows[mod_type]["window"] = win
-            win.show()
-            
-        elif mod_type in ["LFO Vibrato", "LFO Tremolo", "LoFi (Bitcrush)",
-                          "RingMod", "Echo Delay", "Pitch Slide",
-                          "Retrigger", "Portamento",
-                          "Saturation", "Detune", "Delay"]:
-            win = GenericModWindow(mod_type, workbench=self)
-            self.active_windows[mod_type]["window"] = win
-            win.show()
+            remove_btn = QPushButton("✕")
+            remove_btn.setFixedWidth(26)
+            remove_btn.setStyleSheet(
+                "background-color: #5a2020; color: #ff6666; font-weight: bold;"
+                "border: 1px solid #733; border-radius: 3px;")
+            idx = i  # capture index
+            remove_btn.clicked.connect(lambda checked=False, ix=idx: self._remove_rack_item(ix))
+
+            row_layout.addWidget(item_btn, stretch=1)
+            row_layout.addWidget(remove_btn)
+            self.active_mods_layout.addWidget(row)
+
+    def _remove_rack_item(self, index):
+        """Removes a single item from the FX chain by index."""
+        if 0 <= index < len(self._rack_fx_chain):
+            self._rack_fx_chain.pop(index)
+            self._rebuild_rack_display()
+            self.update_oscilloscope()
+
+    def _fx_label_for_code(self, fx_item):
+        """Converts 'VIB 68' → '🌊 Vibrato  (68)' for display."""
+        parts = fx_item.strip().split(None, 1)
+        code = parts[0] if parts else "?"
+        param = parts[1] if len(parts) > 1 else ""
+        name = self.FX_CODE_TO_NAME.get(code, code)
+        # Grab the category emoji from the catalog
+        from .fx_ui_manager import FX_CATALOG
+        info = FX_CATALOG.get(code, {})
+        cat = info.get("category", "")
+        emoji = cat.split(" ")[0] if cat else "⚙️"
+        return f"{emoji} {name}  ({param})" if param else f"{emoji} {name}"
 
     def get_patch(self):
         active_btn1 = self.wave1_btn_group.checkedId()
@@ -539,83 +652,10 @@ class WorkbenchWidget(QWidget):
         if w2 != "off":
             patch["wave_type_2"] = w2
         
-        # --- Serialize active modulation rack parameters ---
-        lfo_data = {}
-        
-        if "LFO Vibrato" in self.active_windows:
-            win = self.active_windows["LFO Vibrato"].get("window")
-            if win:
-                lfo_data["vibrato_speed"] = 1.0 + (win.rate_val * 5.0)
-                lfo_data["vibrato_depth"] = win.depth_val
-        
-        if "LoFi (Bitcrush)" in self.active_windows:
-            win = self.active_windows["LoFi (Bitcrush)"].get("window")
-            if win:
-                patch["bit_depth"] = 2 + int(win.depth_val * 14)  # 2 to 16 bits
-                patch["saturation"] = 1.0 + (win.rate_val * 4.0)  # Rate controls saturation gain
-        
-        if "RingMod" in self.active_windows:
-            win = self.active_windows["RingMod"].get("window")
-            if win:
-                patch["ring_mod"] = {
-                    "carrier_freq": 100.0 + (win.rate_val * 900.0),  # 100-1000 Hz
-                    "mix": win.depth_val
-                }
-        
-        if "Echo Delay" in self.active_windows:
-            win = self.active_windows["Echo Delay"].get("window")
-            if win:
-                patch["echo"] = {
-                    "delay_time": 0.05 + (win.rate_val * 0.45),  # 50ms to 500ms
-                    "feedback": win.depth_val
-                }
+        # --- Serialize the FX chain from the rack ---
+        if self._rack_fx_chain:
+            patch["fx_chain"] = list(self._rack_fx_chain)
 
-        if "LFO Tremolo" in self.active_windows:
-            win = self.active_windows["LFO Tremolo"].get("window")
-            if win:
-                lfo_data["tremolo_speed"] = 1.0 + (win.rate_val * 15.0)  # 1-16 Hz
-                lfo_data["tremolo_depth"] = win.depth_val
-
-        if "Pitch Slide" in self.active_windows:
-            win = self.active_windows["Pitch Slide"].get("window")
-            if win:
-                patch["pitch_slide"] = {
-                    "semitones": win.depth_val * 12.0,  # 0-12 semitones
-                    "direction": "up" if win.rate_val >= 0.5 else "down"
-                }
-
-        if "Retrigger" in self.active_windows:
-            win = self.active_windows["Retrigger"].get("window")
-            if win:
-                patch["retrigger"] = {
-                    "rate_hz": 1.0 + (win.depth_val * 31.0)  # 1-32 Hz
-                }
-
-        if "Portamento" in self.active_windows:
-            win = self.active_windows["Portamento"].get("window")
-            if win:
-                patch["portamento"] = {
-                    "slide_time": win.depth_val * 0.5  # 0-0.5s
-                }
-
-        if "Saturation" in self.active_windows:
-            win = self.active_windows["Saturation"].get("window")
-            if win:
-                patch["saturation"] = 1.0 + (win.depth_val * 4.0)  # 1.0-5.0 gain
-
-        if "Detune" in self.active_windows:
-            win = self.active_windows["Detune"].get("window")
-            if win:
-                patch["detune"] = win.depth_val * 50.0  # 0-50 cents
-
-        if "Delay" in self.active_windows:
-            win = self.active_windows["Delay"].get("window")
-            if win:
-                patch["delay_start"] = win.depth_val  # 0.0-1.0 fraction
-        
-        if lfo_data:
-            patch["lfo"] = lfo_data
-            
         return patch
 
     def update_oscilloscope(self):
@@ -661,121 +701,28 @@ class WorkbenchWidget(QWidget):
         self.env_data["sustain"] = env.get("sustain_level", env.get("sustain", 0.5))
         self.env_data["release"] = env.get("release", 0.3)
         
-        if "ADSR Envelope" in self.active_windows and self.active_windows["ADSR Envelope"]["window"]:
-            win = self.active_windows["ADSR Envelope"]["window"]
-            win.slider_a.blockSignals(True)
-            win.slider_d.blockSignals(True)
-            win.slider_s.blockSignals(True)
-            win.slider_r.blockSignals(True)
-            
-            win.slider_a.setValue(int(self.env_data["attack"] * 100))
-            win.slider_d.setValue(int(self.env_data["decay"] * 100))
-            win.slider_s.setValue(int(self.env_data["sustain"] * 100))
-            win.slider_r.setValue(int(self.env_data["release"] * 100))
-            
-            win.slider_a.blockSignals(False)
-            win.slider_d.blockSignals(False)
-            win.slider_s.blockSignals(False)
-            win.slider_r.blockSignals(False)
-            win.update_display()
-        
-        # --- 3. Modulation Rack: Auto-add/remove/update modules ---
-        lfo_data = patch_data.get("lfo", {})
-        echo_data = patch_data.get("echo", {})
-        ring_data = patch_data.get("ring_mod", {})
-        has_bitcrush = "bit_depth" in patch_data or "saturation" in patch_data
-        
-        # Mapping: mod_type → (check_condition, setup_function)
-        mod_map = {
-            "LFO Vibrato": bool(lfo_data),
-            "LoFi (Bitcrush)": has_bitcrush,
-            "RingMod": bool(ring_data),
-            "Echo Delay": bool(echo_data),
-            "Saturation": "saturation" in patch_data and not has_bitcrush,
-            "Detune": "detune" in patch_data,
-            "Delay": "delay_start" in patch_data,
-        }
-        
-        for mod_type, should_exist in mod_map.items():
-            currently_exists = mod_type in self.active_windows
-            
-            if should_exist and not currently_exists:
-                # Add the module to the rack
-                self.add_modulator(mod_type, show_window=False)
-            elif not should_exist and currently_exists:
-                # Remove the module from the rack
-                container = self.active_windows[mod_type].get("container")
-                if container:
-                    self.remove_modulator(mod_type, container)
-        
-        # Now set parameter values on existing mod windows
-        if "LFO Vibrato" in self.active_windows:
-            win = self.active_windows["LFO Vibrato"].get("window")
-            if win and lfo_data:
-                # Reverse the math: vibrato_speed = 1.0 + (rate_val * 5.0)
-                speed = lfo_data.get("vibrato_speed", 1.0)
-                win.rate_val = max(0.0, min(1.0, (speed - 1.0) / 5.0))
-                win.depth_val = lfo_data.get("vibrato_depth", 0.5)
-                self._set_generic_mod_sliders(win)
-        
-        if "LoFi (Bitcrush)" in self.active_windows:
-            win = self.active_windows["LoFi (Bitcrush)"].get("window")
-            if win:
-                # Reverse: bit_depth = 2 + int(depth_val * 14)
-                bit_depth = patch_data.get("bit_depth", 16)
-                win.depth_val = max(0.0, min(1.0, (bit_depth - 2) / 14.0))
-                # Reverse: saturation = 1.0 + (rate_val * 4.0)
-                sat = patch_data.get("saturation", 1.0)
-                win.rate_val = max(0.0, min(1.0, (sat - 1.0) / 4.0))
-                self._set_generic_mod_sliders(win)
-        
-        if "RingMod" in self.active_windows:
-            win = self.active_windows["RingMod"].get("window")
-            if win and ring_data:
-                # Reverse: carrier_freq = 100.0 + (rate_val * 900.0)
-                freq = ring_data.get("carrier_freq", 500.0)
-                win.rate_val = max(0.0, min(1.0, (freq - 100.0) / 900.0))
-                win.depth_val = ring_data.get("mix", 0.5)
-                self._set_generic_mod_sliders(win)
-        
-        if "Echo Delay" in self.active_windows:
-            win = self.active_windows["Echo Delay"].get("window")
-            if win and echo_data:
-                # Reverse: delay_time = 0.05 + (rate_val * 0.45)
-                delay = echo_data.get("delay_time", 0.15)
-                win.rate_val = max(0.0, min(1.0, (delay - 0.05) / 0.45))
-                win.depth_val = echo_data.get("feedback", 0.4)
-                self._set_generic_mod_sliders(win)
+        # --- 3. FX Chain: load from patch and rebuild rack ---
+        fx_chain = patch_data.get("fx_chain", [])
+        if fx_chain and isinstance(fx_chain, list):
+            self._rack_fx_chain = list(fx_chain)
+        else:
+            # Backward compat: convert legacy fields to fx_chain items
+            self._rack_fx_chain = []
+            self._migrate_legacy_fx(patch_data)
 
-        if "Saturation" in self.active_windows:
-            win = self.active_windows["Saturation"].get("window")
-            if win:
-                sat = patch_data.get("saturation", 1.0)
-                win.depth_val = max(0.0, min(1.0, (sat - 1.0) / 4.0))
-                self._set_generic_mod_sliders(win)
+        # Sync ENV items back to env_data
+        for fx_item in self._rack_fx_chain:
+            parts = fx_item.strip().split()
+            if len(parts) >= 2 and parts[0] == "ENV":
+                self._sync_fx_to_generic("__env__", fx_item)
 
-        if "Detune" in self.active_windows:
-            win = self.active_windows["Detune"].get("window")
-            if win:
-                cents = patch_data.get("detune", 0.0)
-                win.depth_val = max(0.0, min(1.0, cents / 50.0))
-                self._set_generic_mod_sliders(win)
-
-        if "Delay" in self.active_windows:
-            win = self.active_windows["Delay"].get("window")
-            if win:
-                win.depth_val = patch_data.get("delay_start", 0.0)
-                self._set_generic_mod_sliders(win)
-            
+        self._rebuild_rack_display()
         self.update_oscilloscope()
 
     def _set_generic_mod_sliders(self, win):
         """Helper to sync a GenericModWindow's internal values to its sliders."""
-        # The GenericModWindow creates sliders via create_v_slider in a QVBoxLayout.
-        # We find the QSlider children and set them to match depth_val / rate_val.
         from PyQt6.QtWidgets import QSlider
         sliders = win.findChildren(QSlider)
-        # First slider = Depth, Second slider = Rate (order from create_v_slider calls)
         if len(sliders) >= 1:
             sliders[0].blockSignals(True)
             sliders[0].setValue(int(win.depth_val * 100))
@@ -786,6 +733,133 @@ class WorkbenchWidget(QWidget):
             sliders[1].blockSignals(False)
         if hasattr(win, 'update_display'):
             win.update_display()
+
+    def _sync_fx_to_generic(self, mod_type, fx_string):
+        """Syncs FX string data back to legacy stores (e.g. env_data for ADSR)."""
+        parts = fx_string.strip().split()
+        if len(parts) < 2:
+            return
+        code = parts[0]
+
+        # ADSR envelope: "ENV 5.20.50.30"
+        if code == "ENV":
+            adsr_parts = parts[1].split(".")
+            if len(adsr_parts) >= 4:
+                try:
+                    self.env_data["attack"] = int(adsr_parts[0]) / 100.0
+                    self.env_data["decay"] = int(adsr_parts[1]) / 100.0
+                    self.env_data["sustain"] = int(adsr_parts[2]) / 100.0
+                    self.env_data["release"] = int(adsr_parts[3]) / 100.0
+                except ValueError:
+                    pass
+
+    def _migrate_legacy_fx(self, patch_data):
+        """Converts legacy preset fields into _rack_fx_chain items.
+        Called when loading a patch that has no 'fx_chain' key."""
+        chain = self._rack_fx_chain  # already []
+
+        # ADSR from envelope sub-dict
+        env = patch_data.get("envelope", {})
+        if env and isinstance(env, dict):
+            a = int(env.get("attack", 0.05) * 100)
+            d = int(env.get("decay", 0.2) * 100)
+            s = int(env.get("sustain_level", env.get("sustain", 0.5)) * 100)
+            r = int(env.get("release", 0.3) * 100)
+            chain.append(f"ENV {a}.{d}.{s}.{r}")
+
+        # LFO → VIB / TRM
+        lfo = patch_data.get("lfo", {})
+        if lfo and isinstance(lfo, dict):
+            vib_speed = lfo.get("vibrato_speed", 0.0)
+            vib_depth = lfo.get("vibrato_depth", 0.0)
+            if vib_depth > 0:
+                p1 = min(15, max(0, int((vib_speed - 1.0) / 1.0)))
+                p2 = min(15, max(0, int(vib_depth * 15)))
+                chain.append(f"VIB {(p1 << 4) | p2}")
+
+            trm_speed = lfo.get("tremolo_speed", 0.0)
+            trm_depth = lfo.get("tremolo_depth", 0.0)
+            if trm_depth > 0:
+                p1 = min(15, max(0, int((trm_speed - 1.0) / 1.0)))
+                p2 = min(15, max(0, int(trm_depth * 15)))
+                chain.append(f"TRM {(p1 << 4) | p2}")
+
+        # Saturation
+        sat = patch_data.get("saturation", 0.0)
+        if sat and sat > 1.0:
+            p = min(255, max(0, int((sat - 1.0) / 4.0 * 255)))
+            chain.append(f"SAT {p}")
+
+        # Echo
+        echo = patch_data.get("echo", {})
+        if echo and isinstance(echo, dict):
+            delay = echo.get("delay_time", 0.15)
+            fb = echo.get("feedback", 0.4)
+            p1 = min(15, max(0, int((delay - 0.01) / 0.05)))
+            p2 = min(15, max(0, int(fb * 15)))
+            chain.append(f"ECH {(p1 << 4) | p2}")
+
+        # Ring Mod
+        ring = patch_data.get("ring_mod", {})
+        if ring and isinstance(ring, dict):
+            mix = ring.get("mix", 0.5)
+            p = min(255, max(0, int(mix * 255)))
+            chain.append(f"RNG {p}")
+
+        # Portamento
+        port = patch_data.get("portamento", {})
+        if port and isinstance(port, dict):
+            slide = port.get("slide_time", 0.1)
+            p = min(255, max(0, int(slide / 0.5 * 255)))
+            chain.append(f"PRT {p}")
+
+        # Detune
+        detune = patch_data.get("detune", 0.0)
+        if detune and detune > 0:
+            p = min(255, max(0, int(detune / 50.0 * 255)))
+            chain.append(f"DTN {p}")
+
+        # Delay start
+        dly = patch_data.get("delay_start", 0.0)
+        if dly and dly > 0:
+            p = min(255, max(0, int(dly * 255)))
+            chain.append(f"DLY {p}")
+
+        # Retrigger
+        retrig = patch_data.get("retrigger", {})
+        if retrig and isinstance(retrig, dict):
+            hz = retrig.get("rate_hz", 1.0)
+            p = min(255, max(0, int((hz - 1.0) / 31.0 * 255)))
+            chain.append(f"RTG {p}")
+
+        # Pitch slide
+        pslide = patch_data.get("pitch_slide", {})
+        if pslide and isinstance(pslide, dict):
+            semi = pslide.get("semitones", 0.0)
+            direction = pslide.get("direction", "up")
+            p = min(255, max(0, int(semi / 12.0 * 255)))
+            code = "SUP" if direction == "up" else "SDN"
+            chain.append(f"{code} {p}")
+
+        # Bit depth (LoFi)
+        bit_depth = patch_data.get("bit_depth", 0)
+        if bit_depth and bit_depth > 0 and bit_depth < 16:
+            p = min(255, max(0, int((bit_depth - 2) / 14.0 * 255)))
+            chain.append(f"CUT {p}")
+
+    def _fx_preview_handler(self, fx_string):
+        """Plays the active test pattern with the current patch to preview an FX.
+        Resolves the instrument folder to pick the right test melody."""
+        # 1. Try the currently selected instrument's folder
+        cat = self._get_selected_folder()
+        # 2. Fall back to active_category (last used test button)
+        if not cat:
+            cat = self.active_category
+        # 3. Default
+        if not cat:
+            cat = "leads"
+        melody = self.TEST_PATTERNS.get(cat, self.TEST_PATTERNS["leads"])
+        self._play_melody(melody)
 
     def _show_bank_context_menu(self, pos):
         """Show the instrument bank right-click context menu."""
@@ -800,18 +874,43 @@ class WorkbenchWidget(QWidget):
             self._populate_bank_tree()
 
     def add_instrument(self):
-        """Creates a new instrument, saving into the currently selected folder."""
+        """Creates a new blank instrument, saving into the currently selected folder."""
         text, ok = QInputDialog.getText(self, "New Instrument", "Instrument Name:")
         if ok and text:
             folder = self._get_selected_folder()
             key = f"{folder}/{text}" if folder else text
             if key not in self.bank_data:
-                patch = self.get_patch()
+                # Blank default patch — NOT the current UI state
+                patch = {
+                    "wave_type": "square",
+                    "mix": 0.0,
+                    "envelope": {
+                        "attack": 5, "decay": 20,
+                        "sustain_level": 50, "release": 30
+                    }
+                }
                 self.bank_data[key] = {"patch": patch, "display": text, "folder": folder}
+                # Context-aware: use active_category if no folder selected
+                save_folder = folder or self.active_category
+                if save_folder:
+                    key = f"{save_folder}/{text}"
+                    self.bank_data[key] = {"patch": patch, "display": text, "folder": save_folder}
                 # Save to disk
                 safe_name = "".join([c for c in text if c.isalpha() or c.isdigit() or c=='_']).rstrip()
-                self.preset_mgr.save_instrument(safe_name, patch, folder=folder)
+                self.preset_mgr.save_instrument(safe_name, patch, folder=save_folder)
                 self._populate_bank_tree()
+
+    def save_instrument_as(self):
+        """Saves the current patch as a new instrument with a new name."""
+        text, ok = QInputDialog.getText(self, "Save As", "New Instrument Name:")
+        if ok and text:
+            folder = self._get_selected_folder() or self.active_category
+            patch = self.get_patch()
+            key = f"{folder}/{text}" if folder else text
+            self.bank_data[key] = {"patch": patch, "display": text, "folder": folder}
+            safe_name = "".join([c for c in text if c.isalpha() or c.isdigit() or c=='_']).rstrip()
+            self.preset_mgr.save_instrument(safe_name, patch, folder=folder)
+            self._populate_bank_tree()
                 
     def save_instrument(self):
         key = self._get_selected_key()
@@ -847,8 +946,90 @@ class WorkbenchWidget(QWidget):
                 self.preset_mgr.delete_instrument(safe_name, folder=folder)
                 del self.bank_data[key]
                 self._populate_bank_tree()
+    def _open_fx_editor(self):
+        """Opens the unified FX popup for experimentation (no cell target)."""
+        def _on_apply(fx_string):
+            print(f"[FX Editor] Output: {fx_string}")
+        popup = FXPopupWindow(parent=self, on_apply=_on_apply)
+        popup.exec()
+
+    # ---- Contextual Test Patterns ----
+    # Each category has its own note array and timing to showcase the patch
+    # in a musically appropriate context.
+
+    TEST_PATTERNS = {
+        "bass": [
+            # Deep, rhythmic bass line — mostly C2/E2/G2
+            (36, 0.25), (36, 0.15), (None, 0.10),
+            (40, 0.20), (43, 0.20), (36, 0.40),
+            (None, 0.05), (36, 0.10), (38, 0.10),
+            (40, 0.30), (43, 0.25), (36, 0.50),
+        ],
+        "leads": [
+            # Melodic lead — C4 to C5 range
+            (60, 0.12), (64, 0.12), (67, 0.12), (72, 0.40),
+            (71, 0.10), (69, 0.10), (67, 0.30),
+            (64, 0.15), (60, 0.15), (67, 0.50),
+        ],
+        "pads": [
+            # Chord + melody mix: shows both texture and detail
+            ([60, 64, 67], 0.90),       # C major chord
+            (72, 0.30),                 # C5 melody note
+            (71, 0.30),                 # B4
+            (None, 0.10),
+            ([57, 60, 64], 0.90),       # A minor chord
+            (69, 0.30),                 # A4 melody note
+            (67, 0.30),                 # G4
+            (None, 0.10),
+            ([53, 57, 60], 0.90),       # F major chord
+            (65, 0.30),                 # F4 melody note
+            (64, 0.30),                 # E4
+            (None, 0.10),
+            ([55, 59, 62], 0.90),       # G major chord
+            (67, 0.40),                 # G4 resolving note
+        ],
+        "keys": [
+            # Fast arp-style run — even staccato
+            (60, 0.08), (64, 0.08), (67, 0.08), (72, 0.08),
+            (76, 0.08), (72, 0.08), (67, 0.08), (64, 0.08),
+            (60, 0.08), (64, 0.08), (67, 0.08), (72, 0.08),
+            (76, 0.12), (79, 0.12), (84, 0.20),
+        ],
+        "drums": [
+            # Percussive hits — short, spaced, varied pitch
+            (36, 0.06), (None, 0.14),
+            (42, 0.04), (None, 0.06),
+            (42, 0.04), (None, 0.06),
+            (38, 0.06), (None, 0.14),
+            (42, 0.04), (None, 0.06),
+            (36, 0.06), (36, 0.06), (None, 0.04),
+            (38, 0.08), (None, 0.12),
+        ],
+        "sfx": [
+            # SFX showcase — wide range sweeps, varied timing
+            (72, 0.15), (84, 0.10), (96, 0.08),
+            (None, 0.10),
+            (48, 0.30), (36, 0.20),
+            (None, 0.15),
+            (60, 0.05), (72, 0.05), (84, 0.05), (96, 0.05),
+            (None, 0.10),
+            (36, 0.60),
+        ],
+    }
+
+    def play_test(self, category):
+        """Plays a category-appropriate test phrase and sets active_category."""
+        self.active_category = category
+        melody = self.TEST_PATTERNS.get(category, self.TEST_PATTERNS["leads"])
+        self._play_melody(melody)
+
     def play_preview(self):
         """Plays a short melody showcasing the patch with all active FX."""
+        # Default preview uses the lead test pattern
+        self._play_melody(self.TEST_PATTERNS["leads"])
+
+    def _play_melody(self, melody):
+        """Synthesizes and plays a list of (midi_note_or_None, duration) tuples."""
         import numpy as np
         patch = self.get_patch()
         sr = 44100
@@ -860,35 +1041,56 @@ class WorkbenchWidget(QWidget):
         wave_2 = patch.get("wave_type_2")
         mix_r = patch.get("mix", 0.0)
 
-        # Melody: (MIDI note, duration in seconds)
-        melody = [
-            (60, 0.12),   # C4  staccato
-            (64, 0.12),   # E4  staccato
-            (67, 0.12),   # G4  staccato
-            (69, 0.45),   # A4  sustained
-            (67, 0.10),   # G4  staccato
-            (64, 0.10),   # E4  staccato
-            (72, 0.60),   # C5  long sustained
-            (74, 0.08),   # D5  quick grace
-            (72, 0.40),   # C5  ending sustain
-        ]
-        gap = 0.02  # tiny silence between notes
-
+        gap = 0.02
         segments = []
         prev_freq = None
-        for midi_note, dur in melody:
-            from engine.constants import ROOT_A4_FREQ
-            freq = ROOT_A4_FREQ * (2.0 ** ((midi_note - 69) / 12.0))
-            note = self.osc.generate(patch["wave_type"], freq, dur)
-            if wave_2 and wave_2 != "off" and mix_r > 0.0:
-                w2 = self.osc.generate(wave_2, freq, dur)
-                note = ((1.0 - mix_r) * note) + (mix_r * w2)
 
-            # Apply ADSR
-            note = self.mod.apply_adsr(
-                note, attack=min(att, dur * 0.3),
-                decay=min(dec, dur * 0.3),
-                sustain_level=sus, release=min(rel, dur * 0.4))
+        for entry in melody:
+            # Support chords: entry can be ([midi, midi, ...], dur) or (midi, dur) or (None, dur)
+            if isinstance(entry[0], list):
+                midi_notes, dur = entry
+            else:
+                midi_note, dur = entry
+                midi_notes = [midi_note] if midi_note is not None else None
+
+            if midi_notes is None:
+                # Rest
+                segments.append(np.zeros(int(sr * dur)))
+                continue
+
+            # Generate and sum all notes in the chord
+            chord_wave = np.zeros(int(sr * dur))
+            for midi_note in midi_notes:
+
+                from engine.constants import ROOT_A4_FREQ
+                freq = ROOT_A4_FREQ * (2.0 ** ((midi_note - 69) / 12.0))
+                note = self.osc.generate(patch["wave_type"], freq, dur)
+                if wave_2 and wave_2 != "off" and mix_r > 0.0:
+                    w2 = self.osc.generate(wave_2, freq, dur)
+                    note = ((1.0 - mix_r) * note) + (mix_r * w2)
+
+                note = self.mod.apply_adsr(
+                    note, attack=min(att, dur * 0.3),
+                    decay=min(dec, dur * 0.3),
+                    sustain_level=sus, release=min(rel, dur * 0.4))
+
+                # Ensure same length
+                target_len = len(chord_wave)
+                if len(note) > target_len:
+                    note = note[:target_len]
+                elif len(note) < target_len:
+                    note = np.pad(note, (0, target_len - len(note)))
+
+                chord_wave += note
+
+            # Normalize chord so it doesn't clip
+            if len(midi_notes) > 1:
+                peak = np.max(np.abs(chord_wave))
+                if peak > 0.95:
+                    chord_wave *= 0.95 / peak
+
+            note = chord_wave
+            freq = ROOT_A4_FREQ * (2.0 ** ((midi_notes[0] - 69) / 12.0))  # Use root for FX
 
             # Apply Pitch Slide
             pitch_slide = patch.get("pitch_slide")
@@ -900,16 +1102,14 @@ class WorkbenchWidget(QWidget):
                     end_freq = freq / (2.0 ** (semis / 12.0))
                 freq_profile = self.mod.generate_slide_profile(
                     freq, end_freq, dur, dur * 0.8)
-                # Re-synthesize with frequency profile
                 t = np.linspace(0, dur, len(note), endpoint=False)
                 phase = np.cumsum(freq_profile / sr) * 2 * np.pi
                 note_slid = np.sin(phase)
-                # Apply envelope scaling to slid note
                 if len(note) > 0 and np.max(np.abs(note)) > 0:
                     env_shape = note / (np.max(np.abs(note)) + 1e-9)
                     note = note_slid * np.abs(env_shape)
 
-            # Apply Portamento (slide from previous note)
+            # Apply Portamento
             porta = patch.get("portamento", {})
             slide_time = porta.get("slide_time", 0.0)
             if prev_freq and slide_time > 0 and prev_freq != freq:
@@ -922,11 +1122,9 @@ class WorkbenchWidget(QWidget):
 
             # Apply LoFi / Bitcrush
             if "bit_depth" in patch:
-                bits = patch["bit_depth"]
-                note = self.mod.apply_bitcrush(note, bits)
+                note = self.mod.apply_bitcrush(note, patch["bit_depth"])
             if "saturation" in patch:
-                sat = patch["saturation"]
-                note = self.mod.apply_saturation(note, sat)
+                note = self.mod.apply_saturation(note, patch["saturation"])
 
             # Apply Tremolo
             lfo = patch.get("lfo", {})
@@ -965,7 +1163,7 @@ class WorkbenchWidget(QWidget):
             if sat_gain and sat_gain > 1.0 and "bit_depth" not in patch:
                 note = self.mod.apply_saturation(note, sat_gain)
 
-            # Apply Detune (pitch shift via resampling)
+            # Apply Detune
             detune_cents = patch.get("detune", 0.0)
             if detune_cents > 0.01:
                 ratio = 2.0 ** (detune_cents / 1200.0)
@@ -974,7 +1172,7 @@ class WorkbenchWidget(QWidget):
                     0, len(note) - 1)
                 note = note[indices]
 
-            # Apply Delay Start (shift note later)
+            # Apply Delay Start
             delay_frac = patch.get("delay_start", 0.0)
             if delay_frac > 0.01:
                 delay_samples = int(delay_frac * len(note) * 0.5)
@@ -984,11 +1182,11 @@ class WorkbenchWidget(QWidget):
                     note = shifted
 
             segments.append(note)
-            segments.append(np.zeros(int(sr * gap)))  # gap
+            segments.append(np.zeros(int(sr * gap)))
             prev_freq = freq
 
         full = np.concatenate(segments)
-        full = full / (np.max(np.abs(full)) + 1e-9) * 0.7  # normalize
+        full = full / (np.max(np.abs(full)) + 1e-9) * 0.7
 
         try:
             sd.stop()

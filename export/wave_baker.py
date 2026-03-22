@@ -9,6 +9,7 @@ import os
 import struct
 import numpy as np
 from engine.constants import HIFI_SAMPLE_RATE, LOFI_SAMPLE_RATE
+from engine.paths import get_export_tracks_dir
 
 
 # Quality profiles: name → (sample_rate, bit_depth, description)
@@ -21,7 +22,7 @@ QUALITY_PROFILES = {
 
 class WaveBaker:
     def __init__(self, export_dir=None):
-        self.export_dir = export_dir or os.path.expanduser("~/Documents/Lanthorn Exports")
+        self.export_dir = export_dir or get_export_tracks_dir()
         if not os.path.exists(self.export_dir):
             os.makedirs(self.export_dir, exist_ok=True)
 

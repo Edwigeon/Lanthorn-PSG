@@ -42,6 +42,18 @@ class CsvHandler:
                         patch = entry.get("patch", entry) if isinstance(entry, dict) and "patch" in entry else entry
                         patch_json = json.dumps(patch)
                         writer.writerow(["PATCH", inst_name, patch_json])
+                    else:
+                        # Fallback: search by display name
+                        found = False
+                        for k, v in bank_data.items():
+                            if isinstance(v, dict) and v.get("display", k) == inst_name:
+                                patch = v.get("patch", v) if "patch" in v else v
+                                patch_json = json.dumps(patch)
+                                writer.writerow(["PATCH", inst_name, patch_json])
+                                found = True
+                                break
+                        if not found:
+                            print(f"[Lanthorn] Warning: Instrument '{inst_name}' not found in bank. Not saved.")
                 
                 # --- 3. ORDER LIST ---
                 writer.writerow(["--- ORDER LIST ---", "SeqIndex", "PatternID"])
@@ -54,12 +66,16 @@ class CsvHandler:
                     pat_len = tracker_widget.pattern_lengths[pat_id]
                     meta = tracker_widget.pattern_meta.get(pat_id, {})
                     row = ["PATTERN", pat_id, pat_len]
-                    # Append per-pattern overrides if they exist
-                    if meta:
-                        row.extend([
-                            meta.get("bpm", ""), meta.get("lpb", ""), meta.get("lpm", ""),
-                            meta.get("key", ""), meta.get("mode", "")
-                        ])
+                    # Always write positions 3-7 (bpm, lpb, lpm, key, mode)
+                    # so that custom name is always at position 8
+                    row.extend([
+                        meta.get("bpm", ""), meta.get("lpb", ""), meta.get("lpm", ""),
+                        meta.get("key", ""), meta.get("mode", "")
+                    ])
+                    # Append custom name (position 8)
+                    pattern_names = getattr(tracker_widget, 'pattern_names', {})
+                    custom_name = pattern_names.get(pat_id, pat_id)
+                    row.append(custom_name)
                     writer.writerow(row)
                     
                     grid = tracker_widget.patterns.get(pat_id)
@@ -125,6 +141,7 @@ class CsvHandler:
                 order_list = []
                 patterns = {}
                 pattern_lengths = {}
+                pattern_names = {} # Initialize pattern_names
                 tracker_widget.pattern_meta = {}  # Clear stale timing from previous file
                 active_pattern_id = None
                 
@@ -163,18 +180,32 @@ class CsvHandler:
                         pattern_lengths[active_pattern_id] = pat_len
                         # Per-pattern overrides (optional fields 3-7)
                         meta = {}
-                        if len(row_data) > 3 and row_data[3]:
-                            meta["bpm"] = int(row_data[3])
-                        if len(row_data) > 4 and row_data[4]:
-                            meta["lpb"] = int(row_data[4])
-                        if len(row_data) > 5 and row_data[5]:
-                            meta["lpm"] = int(row_data[5])
-                        if len(row_data) > 6 and row_data[6]:
-                            meta["key"] = row_data[6].strip()
-                        if len(row_data) > 7 and row_data[7]:
-                            meta["mode"] = row_data[7].strip()
+                        try:
+                            if len(row_data) > 3 and row_data[3]:
+                                meta["bpm"] = int(row_data[3])
+                            if len(row_data) > 4 and row_data[4]:
+                                meta["lpb"] = int(row_data[4])
+                            if len(row_data) > 5 and row_data[5]:
+                                meta["lpm"] = int(row_data[5])
+                            if len(row_data) > 6 and row_data[6]:
+                                meta["key"] = row_data[6].strip()
+                            if len(row_data) > 7 and row_data[7]:
+                                meta["mode"] = row_data[7].strip()
+                        except (ValueError, IndexError):
+                            # Backwards compat: old files may have custom name at position 3
+                            meta = {}
                         if meta:
                             tracker_widget.pattern_meta[active_pattern_id] = meta
+                        
+                        # Custom pattern name (position 8, V1.2+)
+                        if len(row_data) > 8 and row_data[8]:
+                            pattern_names[active_pattern_id] = row_data[8].strip()
+                        elif len(row_data) == 4 and row_data[3] and not meta:
+                            # Backwards compat: old format had name at position 3
+                            pattern_names[active_pattern_id] = row_data[3].strip()
+                        else:
+                            pattern_names[active_pattern_id] = active_pattern_id
+                            
                         # Initialize empty grid
                         cols = current_tracks * sub_cols
                         patterns[active_pattern_id] = []
@@ -209,6 +240,7 @@ class CsvHandler:
                 
                 tracker_widget.patterns = patterns
                 tracker_widget.pattern_lengths = pattern_lengths
+                tracker_widget.pattern_names = pattern_names
                 tracker_widget.order_list = order_list
                 tracker_widget.active_pattern = order_list[0]
                 
