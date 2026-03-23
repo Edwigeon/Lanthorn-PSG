@@ -516,7 +516,6 @@ def _trunc(text, width):
 
 class TrackLevelMeters:
     """8-channel VU meter bars driven by velocity with decay."""
-    BLOCKS = [" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]
 
     def __init__(self, num_tracks=8):
         self.num_tracks = num_tracks
@@ -533,14 +532,8 @@ class TrackLevelMeters:
     def render(self, width=5):
         result = []
         for level in self.levels:
-            filled = level * width
-            full = int(filled)
-            frac = filled - full
-            frac_idx = min(int(frac * 8), 8)
-            bar = self.BLOCKS[8] * full
-            if full < width:
-                bar += self.BLOCKS[frac_idx]
-                bar += " " * (width - full - 1)
+            filled = round(level * width)
+            bar = "█" * filled + "·" * (width - filled)
             result.append(bar)
         return result
 

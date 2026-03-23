@@ -297,13 +297,13 @@ class WorkbenchWidget(QWidget):
         rack_group.setStyleSheet("color: #cccccc;")
         self.rack_layout = QVBoxLayout()
 
-        # "Edit FX Chain..." button opens the unified FX Editor
-        edit_chain_btn = QPushButton("🎛️ Edit FX Chain...")
-        edit_chain_btn.setToolTip("Open the FX Editor to build and edit your effect chain")
-        edit_chain_btn.setStyleSheet(
-            "background-color: #264f78; color: #55aaff; font-weight: bold; padding: 6px;")
-        edit_chain_btn.clicked.connect(lambda: self._open_rack_fx_editor())
-        self.rack_layout.addWidget(edit_chain_btn)
+        # "Add FX" button — per-item editing is via clicking items in the rack
+        add_fx_btn = QPushButton("➕ Add FX")
+        add_fx_btn.setToolTip("Add a new effect to the chain")
+        add_fx_btn.setStyleSheet(
+            "background-color: #2d5a2d; color: #55ff88; font-weight: bold; padding: 6px;")
+        add_fx_btn.clicked.connect(lambda: self._add_single_fx())
+        self.rack_layout.addWidget(add_fx_btn)
 
         self.active_mods_layout = QVBoxLayout()
         self.rack_layout.addLayout(self.active_mods_layout)
@@ -515,6 +515,32 @@ class WorkbenchWidget(QWidget):
                 popup.stack_list.addItem(item)
             popup._update_preview()
 
+        popup.exec()
+
+    def _add_single_fx(self):
+        """Opens the FX Editor to add a single new effect to the end of the chain."""
+        def _on_apply(fx_string):
+            # Append new items to the existing chain (don't replace)
+            new_items = [s.strip() for s in fx_string.split(":") if s.strip() and s.strip() != "--"]
+            self._rack_fx_chain.extend(new_items)
+            # Sync effects
+            for fx_item in new_items:
+                parts = fx_item.strip().split()
+                if len(parts) >= 2:
+                    code = parts[0]
+                    if code == "ENV":
+                        self._sync_fx_to_generic("__env__", fx_item)
+                    else:
+                        self._sync_fx_to_generic(code, fx_item)
+            self._rebuild_rack_display()
+            self.update_oscilloscope()
+
+        def _on_preview(fx_string):
+            self._fx_preview_handler(fx_string)
+
+        popup = FXPopupWindow(
+            parent=self, on_apply=_on_apply, on_preview=_on_preview,
+            initial_value="")
         popup.exec()
 
     def _edit_rack_item(self, index):
