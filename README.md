@@ -68,10 +68,20 @@ Speed up your workflow with intelligent right-click menus. Use **Smart Edit** to
 git clone https://github.com/Edwigeon/Lanthorn-PSG.git
 cd Lanthorn-PSG
 
-# Install dependencies
+# Create a virtual environment named 'venv'
+python3 -m venv venv
+
+# Activate the virtual environment
+# On macOS/Linux:
+source venv/bin/activate
+# On Windows (uncomment the line below and comment the one above):
+# .\venv\Scripts\activate
+
+# Upgrade pip and install dependencies inside the venv
+pip install --upgrade pip
 pip install -r requirements.txt
 
-# Run
+# Run the script
 python main.py
 ```
 
