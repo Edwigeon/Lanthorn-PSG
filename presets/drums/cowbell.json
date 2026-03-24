@@ -1,0 +1,14 @@
+{
+    "name": "Cowbell",
+    "wave_type": "square",
+    "wave_type_2": "square",
+    "mix": 0.5,
+    "duty_cycle": 0.3,
+    "saturation": 1.8,
+    "envelope": {
+        "attack": 0.0,
+        "decay": 0.15,
+        "sustain_level": 0.0,
+        "release": 0.05
+    }
+}

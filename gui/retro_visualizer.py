@@ -503,7 +503,7 @@ TRACK_DIVIDER = "║"  # Solid track separator
 
 
 def _trunc(text, width):
-    """Truncate text to width — hard cut, no suffix."""
+    """Fit text to width — pad or truncate as needed."""
     if not text or text in ("---", "--", ""):
         return "·" * min(width, 3)
     text = text.strip()
@@ -515,15 +515,16 @@ def _trunc(text, width):
 # ─────────────────────────────────────────────────────────────────
 
 class TrackLevelMeters:
-    """8-channel VU meter bars driven by velocity with decay."""
+    """8-channel VU meter bars driven by audio RMS with decay."""
 
     def __init__(self, num_tracks=8):
         self.num_tracks = num_tracks
         self.levels = [0.0] * num_tracks
 
-    def trigger(self, track_idx, velocity):
+    def set_level(self, track_idx, level):
+        """Set a track's level directly from an RMS value (0.0-1.0)."""
         if 0 <= track_idx < self.num_tracks:
-            self.levels[track_idx] = max(self.levels[track_idx], velocity / 255.0)
+            self.levels[track_idx] = max(self.levels[track_idx], min(1.0, level))
 
     def tick(self):
         for i in range(self.num_tracks):
@@ -859,6 +860,7 @@ class RetroVisualizerWindow(QWidget):
         self._audio = None             # Full rendered stereo numpy array
         self._step_times = []          # [{time, pat_id, row}, ...]
         self._step_time_values = []    # [float, ...] for binary search
+        self._track_rms = {}           # {step_idx: [rms_per_track]}
         self._play_start_time = 0.0
         self._total_duration = 0.0
         self._rendering = False
@@ -899,8 +901,10 @@ class RetroVisualizerWindow(QWidget):
 
         def _do_render():
             seq = Sequencer(44100)
+            num_tracks = self.data.tracks
 
             audio_blocks = []
+            track_audio_blocks = [[] for _ in range(num_tracks)]  # per-track mono
             play_pattern_steps = []  # [(pat_id, pat_len, bpm, lpb)]
 
             for pat_id in order_list:
@@ -919,6 +923,21 @@ class RetroVisualizerWindow(QWidget):
                     silence = np.zeros((int(pat_len * step_dur * 44100), 2))
                     audio_blocks.append(silence)
 
+                # Render each track solo for per-track RMS
+                for ti in range(num_tracks):
+                    try:
+                        solo_tracks = [{"patch": t.get("patch"), "sequence": []} for t in tracks]
+                        if ti < len(tracks):
+                            solo_tracks[ti] = tracks[ti]
+                        solo_seq = Sequencer(44100)
+                        solo_block = solo_seq.render_pattern(pat_len, pat_bpm, solo_tracks, apply_limiter=False)
+                        # Convert stereo to mono for RMS
+                        mono = np.mean(solo_block, axis=1) if solo_block.ndim == 2 else solo_block
+                        track_audio_blocks[ti].append(mono)
+                    except Exception:
+                        step_dur = seq.calculate_step_time(pat_bpm, pat_lpb)
+                        track_audio_blocks[ti].append(np.zeros(int(pat_len * step_dur * 44100)))
+
                 play_pattern_steps.append((pat_id, pat_len, pat_bpm, pat_lpb))
 
             if not audio_blocks:
@@ -928,6 +947,14 @@ class RetroVisualizerWindow(QWidget):
             max_val = np.max(np.abs(audio))
             if max_val > 0.98:
                 audio *= (0.98 / max_val)
+
+            # Concatenate per-track mono audio
+            full_track_audio = []
+            for ti in range(num_tracks):
+                if track_audio_blocks[ti]:
+                    full_track_audio.append(np.concatenate(track_audio_blocks[ti]))
+                else:
+                    full_track_audio.append(np.zeros(len(audio)))
 
             # Build timestamp array
             step_times = []
@@ -940,10 +967,31 @@ class RetroVisualizerWindow(QWidget):
                     step_time_values.append(current_time)
                     current_time += step_dur
 
+            # Pre-compute per-track per-step RMS levels
+            track_rms = {}
+            sr = 44100
+            for si, st in enumerate(step_times):
+                start_sample = int(st["time"] * sr)
+                # Use a window of ~1024 samples centered on the step
+                window = 1024
+                s0 = max(0, start_sample)
+                s1 = min(s0 + window, len(audio))
+                rms_list = []
+                for ti in range(num_tracks):
+                    chunk = full_track_audio[ti][s0:s1]
+                    if len(chunk) > 0:
+                        rms = float(np.sqrt(np.mean(chunk ** 2)))
+                        # Scale RMS to 0-1 range (typical audio RMS is 0-0.3)
+                        rms_list.append(min(1.0, rms * 3.5))
+                    else:
+                        rms_list.append(0.0)
+                track_rms[si] = rms_list
+
             # Store results (main thread will read these)
             self._audio = audio
             self._step_times = step_times
             self._step_time_values = step_time_values
+            self._track_rms = track_rms
             self._total_duration = current_time
             self._rendering = False
             self.update()
@@ -1060,17 +1108,12 @@ class RetroVisualizerWindow(QWidget):
         step_idx = max(0, min(step_idx, len(self._step_times) - 1))
         self._current_step_idx = step_idx
 
-        # Feed meters on new steps
+        # Feed meters from pre-computed per-track RMS
         if step_idx != self._last_step_idx:
             self._last_step_idx = step_idx
-            info = self._step_times[step_idx]
-            events = self.data.timeline.get(info["pat_id"], {}).get(info["row"], [])
-            for ev in events:
-                try:
-                    vel = int(ev.get("vel", 0))
-                except (ValueError, TypeError):
-                    vel = 0
-                self.meters.trigger(ev["track"], vel)
+            rms_levels = self._track_rms.get(step_idx, [])
+            for ti, rms in enumerate(rms_levels):
+                self.meters.set_level(ti, rms)
 
         self.meters.tick()
         self.update()
@@ -1207,7 +1250,6 @@ class RetroVisualizerWindow(QWidget):
         if self._rendering:
             p.setPen(QColor(t.highlight))
             p.drawText(w // 2 - 100, h // 2, "[...]  Rendering audio... Please wait.")
-            p.end()
             return
 
         # ── HEADER BAR ──
@@ -1272,14 +1314,15 @@ class RetroVisualizerWindow(QWidget):
         avail_chars = max(40, (w - 16) // char_w - 4)  # subtract row num cols
         # each track gets: data_cols + 1 divider char
         chars_per_track = max(TRACK_INNER, avail_chars // num_tracks_here - 1)
-        # Compute extra padding to distribute into columns
+        # Distribute extra space across 6 expandable columns (note, inst, vel, fx1, fx2, + 1 spare)
         extra = chars_per_track - TRACK_INNER
-        # Add padding evenly to note and FX columns
-        dyn_note = COL_NOTE + (extra // 6)
-        dyn_inst = COL_INST + (extra // 6)
-        dyn_vel = COL_VEL + (extra // 6)
+        base_extra, remainder = divmod(extra, 6)
+        # Distribute remainder to the most impactful columns: note, inst, fx1, fx2
+        dyn_note = COL_NOTE + base_extra + (1 if remainder > 0 else 0)
+        dyn_inst = COL_INST + base_extra + (1 if remainder > 1 else 0)
+        dyn_fx = COL_FX + base_extra + (1 if remainder > 2 else 0)
+        dyn_vel = COL_VEL + base_extra + (1 if remainder > 4 else 0)
         dyn_gate = COL_GATE
-        dyn_fx = COL_FX + (extra // 6)
         dyn_inner = dyn_note + dyn_inst + dyn_vel + dyn_gate + dyn_fx * 2 + 5
 
         # ── HELPER: Draw a tracker half (headers + rows for a track range) ──
@@ -1372,21 +1415,20 @@ class RetroVisualizerWindow(QWidget):
                     else:
                         cx = x_pos
                         p.setPen(QColor(t.note))
-                        p.drawText(cx, row_y, f"{_trunc(ev.get('note', ''), COL_NOTE):<{dyn_note}}")
+                        p.drawText(cx, row_y, f"{_trunc(ev.get('note', ''), dyn_note):<{dyn_note}}")
                         cx += (dyn_note + 1) * char_w
                         p.setPen(QColor(t.inst))
-                        p.drawText(cx, row_y, f"{_trunc(ev.get('inst', ''), COL_INST):<{dyn_inst}}")
+                        p.drawText(cx, row_y, f"{_trunc(ev.get('inst', ''), dyn_inst):<{dyn_inst}}")
                         cx += (dyn_inst + 1) * char_w
                         p.setPen(QColor(t.vel_gate))
-                        p.drawText(cx, row_y, f"{_trunc(ev.get('vel', ''), COL_VEL):>{dyn_vel}}")
+                        p.drawText(cx, row_y, f"{_trunc(ev.get('vel', ''), dyn_vel):>{dyn_vel}}")
                         cx += (dyn_vel + 1) * char_w
-                        p.drawText(cx, row_y, f"{_trunc(ev.get('gate', ''), COL_GATE):>{dyn_gate}}")
+                        p.drawText(cx, row_y, f"{_trunc(ev.get('gate', ''), dyn_gate):>{dyn_gate}}")
                         cx += (dyn_gate + 1) * char_w
                         p.setPen(QColor(t.fx))
-                        p.drawText(cx, row_y, f"{_trunc(ev.get('fx1', ''), COL_FX):<{dyn_fx}}")
+                        p.drawText(cx, row_y, f"{_trunc(ev.get('fx1', ''), dyn_fx):<{dyn_fx}}")
                         cx += (dyn_fx + 1) * char_w
-                        p.drawText(cx, row_y, f"{_trunc(ev.get('fx2', ''), COL_FX):<{dyn_fx}}")
-
+                        p.drawText(cx, row_y, f"{_trunc(ev.get('fx2', ''), dyn_fx):<{dyn_fx}}")
                     x_pos += (dyn_inner + 1) * char_w
 
                 yy += line_h
@@ -1593,17 +1635,12 @@ def export_mp4(csv_path, theme_name, output_path, width=1280, height=720,
             step_idx = max(0, min(step_idx, len(step_times) - 1))
             viz._current_step_idx = step_idx
 
-            # Feed meters
+            # Feed meters from pre-computed RMS
             if step_idx != viz._last_step_idx:
                 viz._last_step_idx = step_idx
-                info = step_times[step_idx]
-                events = data.timeline.get(info["pat_id"], {}).get(info["row"], [])
-                for ev in events:
-                    try:
-                        vel = int(ev.get("vel", 0))
-                    except (ValueError, TypeError):
-                        vel = 0
-                    viz.meters.trigger(ev["track"], vel)
+                rms_levels = viz._track_rms.get(step_idx, [])
+                for ti, rms in enumerate(rms_levels):
+                    viz.meters.set_level(ti, rms)
             viz.meters.tick()
 
             # Only re-render when step changes (big speedup)

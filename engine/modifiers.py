@@ -140,23 +140,37 @@ class Modifiers:
 
     def apply_echo(self, wave, delay_time=0.15, feedback=0.4, num_taps=6):
         """
-        Vectorized multi-tap echo using array slicing.
-        Each tap applies exponentially decaying feedback.
+        Multi-tap echo with proper feedback cascading.
+        Each tap feeds back from the accumulated output, producing
+        natural decaying repeats.
         """
         if feedback <= 0.0 or delay_time <= 0.0:
             return wave
             
         delay_samples = int(delay_time * self.sample_rate)
-        if delay_samples >= len(wave) or delay_samples <= 0:
+        if delay_samples <= 0:
             return wave
-            
-        out_wave = np.copy(wave)
-        # Multi-tap vectorized echo: each pass adds a delayed copy with decaying gain
-        gain = feedback
+
+        # Extend buffer to fit echo tail
+        tail_len = delay_samples * num_taps
+        out = np.zeros(len(wave) + tail_len)
+        out[:len(wave)] = wave
+
+        # Proper feedback loop: each tap feeds from accumulated output
         for tap in range(num_taps):
             offset = delay_samples * (tap + 1)
-            if offset >= len(wave):
+            gain = feedback ** (tap + 1)
+            if gain < 0.001:  # below audible threshold
                 break
-            out_wave[offset:] += wave[:len(wave) - offset] * gain
-            gain *= feedback  # exponential decay
-        return out_wave
+            end = min(len(wave) + offset, len(out))
+            src_end = end - offset
+            if src_end <= 0:
+                break
+            out[offset:end] += wave[:src_end] * gain
+
+        # Trim tail silence and normalize to prevent clipping
+        out = out[:len(wave)]  # keep original length for buffer compatibility
+        peak = np.max(np.abs(out))
+        if peak > 1.0:
+            out /= peak
+        return out

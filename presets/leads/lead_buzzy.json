@@ -1,0 +1,13 @@
+{
+    "name": "Buzzy Lead",
+    "wave_type": "sawtooth",
+    "wave_type_2": "square",
+    "mix": 0.35,
+    "saturation": 2.5,
+    "envelope": {
+        "attack": 0.0,
+        "decay": 0.08,
+        "sustain_level": 0.7,
+        "release": 0.1
+    }
+}

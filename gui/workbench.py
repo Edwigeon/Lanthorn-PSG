@@ -3,16 +3,15 @@ import numpy as np
 import sounddevice as sd
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, 
-    QLabel, QSlider, QGroupBox, QPushButton, QButtonGroup,
+    QLabel, QSlider, QGroupBox, QPushButton,
     QComboBox, QDialog, QTreeWidget, QTreeWidgetItem,
-    QDoubleSpinBox, QInputDialog, QMessageBox
+    QDoubleSpinBox, QInputDialog, QMessageBox, QSplitter
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QIcon
 
 from engine.oscillator import Oscillator
 from engine.modifiers import Modifiers
-from .fx_ui_manager import FXPopupWindow
 
 # ==========================================
 # 1. THE FLOATING MODULATION WINDOW (ADSR)
@@ -237,86 +236,99 @@ class WorkbenchWidget(QWidget):
         self.plot_data = self.plot_widget.plot(pen=pg.mkPen('#00FFFF', width=2))
         layout.addWidget(self.plot_widget, stretch=1)
 
-        # --- 2. CORE OSCILLATORS (Permanent UI) ---
-        osc_group = QGroupBox("Core Oscillators")
+        # --- 2. CORE OSCILLATORS (Compact Dropdowns) ---
+        osc_group = QGroupBox("Oscillators")
         osc_group.setStyleSheet("color: #cccccc;")
         osc_main_layout = QVBoxLayout()
-        
+        osc_main_layout.setSpacing(4)
+        osc_main_layout.setContentsMargins(4, 12, 4, 4)
+
+        combo_style = (
+            "QComboBox { background: #2d2d30; color: #ccc; border: 1px solid #3f3f46; "
+            "padding: 3px 6px; border-radius: 2px; } "
+            "QComboBox::drop-down { border: none; } "
+            "QComboBox QAbstractItemView { background: #2d2d30; color: #ccc; "
+            "selection-background-color: #007acc; }")
+
         # Osc 1 Row
         osc1_layout = QHBoxLayout()
-        osc1_label = QLabel("Osc 1:")
-        osc1_label.setFixedWidth(40)
+        osc1_layout.setSpacing(4)
+        osc1_label = QLabel("Osc 1")
+        osc1_label.setStyleSheet("color: #aaa; font-weight: bold;")
         osc1_layout.addWidget(osc1_label)
-        
-        self.wave1_btn_group = QButtonGroup(self)
-        self.wave1_btn_group.setExclusive(True)
-        wave1_types = ["sine", "square", "triangle", "sawtooth", "noise"]
-        for idx, w_type in enumerate(wave1_types):
-            btn = QPushButton(w_type.capitalize())
-            btn.setCheckable(True)
-            if w_type == "square": btn.setChecked(True)
-            self.wave1_btn_group.addButton(btn, id=idx)
-            osc1_layout.addWidget(btn)
-        self.wave1_btn_group.buttonClicked.connect(self.update_oscilloscope)
-        
+        self.wave1_combo = QComboBox()
+        self.wave1_combo.addItems(["Sine", "Square", "Triangle", "Sawtooth", "Noise"])
+        self.wave1_combo.setCurrentText("Square")
+        self.wave1_combo.setStyleSheet(combo_style)
+        self.wave1_combo.currentIndexChanged.connect(lambda: self.update_oscilloscope())
+        osc1_layout.addWidget(self.wave1_combo, stretch=1)
+
         # Osc 2 Row
         osc2_layout = QHBoxLayout()
-        osc2_label = QLabel("Osc 2:")
-        osc2_label.setFixedWidth(40)
+        osc2_layout.setSpacing(4)
+        osc2_label = QLabel("Osc 2")
+        osc2_label.setStyleSheet("color: #aaa; font-weight: bold;")
         osc2_layout.addWidget(osc2_label)
-        
-        self.wave2_btn_group = QButtonGroup(self)
-        self.wave2_btn_group.setExclusive(True)
-        wave2_types = ["off", "sine", "square", "triangle", "sawtooth", "noise"]
-        for idx, w_type in enumerate(wave2_types):
-            btn = QPushButton(w_type.capitalize())
-            btn.setCheckable(True)
-            if w_type == "off": btn.setChecked(True)
-            self.wave2_btn_group.addButton(btn, id=idx)
-            osc2_layout.addWidget(btn)
-        self.wave2_btn_group.buttonClicked.connect(self.update_oscilloscope)
-        
+        self.wave2_combo = QComboBox()
+        self.wave2_combo.addItems(["Off", "Sine", "Square", "Triangle", "Sawtooth", "Noise"])
+        self.wave2_combo.setCurrentText("Off")
+        self.wave2_combo.setStyleSheet(combo_style)
+        self.wave2_combo.currentIndexChanged.connect(lambda: self.update_oscilloscope())
+        osc2_layout.addWidget(self.wave2_combo, stretch=1)
+
         # Mix Slider Row
         mix_layout = QHBoxLayout()
-        mix_label = QLabel("Mix:")
-        mix_label.setFixedWidth(40)
+        mix_layout.setSpacing(4)
+        mix_label = QLabel("Mix")
+        mix_label.setStyleSheet("color: #aaa; font-weight: bold;")
         self.slider_mix = QSlider(Qt.Orientation.Horizontal)
         self.slider_mix.setRange(0, 100)
         self.slider_mix.setValue(0)
         self.slider_mix.valueChanged.connect(self.update_oscilloscope)
         mix_layout.addWidget(mix_label)
-        mix_layout.addWidget(self.slider_mix)
+        mix_layout.addWidget(self.slider_mix, stretch=1)
 
         osc_main_layout.addLayout(osc1_layout)
         osc_main_layout.addLayout(osc2_layout)
         osc_main_layout.addLayout(mix_layout)
         osc_group.setLayout(osc_main_layout)
 
-        # --- 3. DYNAMIC MODULATION RACK ---
+        # --- 3. MODULATION RACK (FXSlotWidget Scrollbox) ---
+        from gui.visualizer import FXSlotWidget
         rack_group = QGroupBox("Modulation Rack")
         rack_group.setStyleSheet("color: #cccccc;")
-        self.rack_layout = QVBoxLayout()
+        rack_main_layout = QVBoxLayout()
+        rack_main_layout.setSpacing(4)
+        rack_main_layout.setContentsMargins(4, 12, 4, 4)
 
-        # "Add FX" button — per-item editing is via clicking items in the rack
-        add_fx_btn = QPushButton("➕ Add FX")
-        add_fx_btn.setToolTip("Add a new effect to the chain")
-        add_fx_btn.setStyleSheet(
-            "background-color: #2d5a2d; color: #55ff88; font-weight: bold; padding: 6px;")
-        add_fx_btn.clicked.connect(lambda: self._add_single_fx())
-        self.rack_layout.addWidget(add_fx_btn)
+        # "Add FX" dropdown button
+        self.btn_rack_add = QPushButton("➕ Add FX")
+        self.btn_rack_add.setToolTip("Add a new effect to the chain")
+        self.btn_rack_add.setStyleSheet(
+            "background-color: #264f78; color: white; font-weight: bold; padding: 6px; border-radius: 3px;")
+        self.btn_rack_add.clicked.connect(self._show_rack_add_menu)
+        rack_main_layout.addWidget(self.btn_rack_add)
 
-        self.active_mods_layout = QVBoxLayout()
-        self.rack_layout.addLayout(self.active_mods_layout)
-        self.rack_layout.addStretch()
+        # Scroll area for FX slots
+        from PyQt6.QtWidgets import QScrollArea
+        rack_scroll = QScrollArea()
+        rack_scroll.setWidgetResizable(True)
+        rack_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
-        rack_group.setLayout(self.rack_layout)
+        self.rack_scroll_widget = QWidget()
+        self.rack_scroll_widget.setStyleSheet("background: transparent;")
+        self.rack_scroll_layout = QVBoxLayout(self.rack_scroll_widget)
+        self.rack_scroll_layout.setSpacing(4)
+        self.rack_scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self.rack_scroll_layout.addStretch()
+
+        rack_scroll.setWidget(self.rack_scroll_widget)
+        rack_main_layout.addWidget(rack_scroll, stretch=1)
+
+        rack_group.setLayout(rack_main_layout)
 
         # FX chain storage: list of fx_string items (e.g. ["VIB 68", "SAT 40"])
         self._rack_fx_chain = []
-
-        # Reverse lookup: FX code → human-readable name
-        from .fx_ui_manager import FX_CATALOG
-        self.FX_CODE_TO_NAME = {code: info["name"] for code, info in FX_CATALOG.items()}
 
         # --- 4. INSTRUMENT BANK ---
         bank_group = QGroupBox("Instrument Bank")
@@ -399,34 +411,37 @@ class WorkbenchWidget(QWidget):
         bank_layout.addLayout(btn_layout)
         bank_group.setLayout(bank_layout)
 
-        # Assemble lower layout horizontally
-        lower_layout = QHBoxLayout()
-        lower_layout.addWidget(rack_group, stretch=1)
-        lower_layout.addWidget(osc_group, stretch=1)
-        lower_layout.addWidget(bank_group, stretch=1)
+        # Assemble lower layout with resizable QSplitter
+        lower_splitter = QSplitter(Qt.Orientation.Horizontal)
+        lower_splitter.setStyleSheet(
+            "QSplitter::handle { background: #3f3f46; width: 3px; }")
+        lower_splitter.addWidget(rack_group)
+        lower_splitter.addWidget(osc_group)
+        lower_splitter.addWidget(bank_group)
+        lower_splitter.setStretchFactor(0, 2)  # Rack gets more space
+        lower_splitter.setStretchFactor(1, 1)  # Osc is compact
+        lower_splitter.setStretchFactor(2, 2)  # Bank gets more space
         
-        layout.addLayout(lower_layout, stretch=2)
+        layout.addWidget(lower_splitter, stretch=2)
 
-        # --- 5. CONTEXTUAL TEST BUTTONS ---
+        # --- 5. SMART TEST BUTTON ---
         test_group = QGroupBox("Test Patch")
         test_group.setStyleSheet("color: #cccccc;")
         test_layout = QHBoxLayout()
 
-        test_categories = [
-            ("🎸 Bass",  "bass"),
-            ("🎹 Lead",  "leads"),
-            ("🌊 Pad",   "pads"),
-            ("🎶 Arp",   "keys"),
-            ("🥁 Drums", "drums"),
-            ("⚡ SFX",   "sfx"),
-        ]
-        for label, cat in test_categories:
-            btn = QPushButton(label)
-            btn.setStyleSheet(
-                "background-color: #333; color: #ccc; padding: 4px 8px; font-size: 11px;")
-            btn.setToolTip(f"Play a {cat}-style test phrase")
-            btn.clicked.connect(lambda checked, c=cat: self.play_test(c))
-            test_layout.addWidget(btn)
+        test_btn = QPushButton("🔊 Test")
+        test_btn.setToolTip(
+            "Play a test phrase matched to the selected instrument's category")
+        test_btn.setStyleSheet(
+            "background-color: #264f78; color: #55aaff; font-weight: bold; "
+            "padding: 8px 24px; font-size: 13px;")
+        test_btn.clicked.connect(lambda _: self.play_test())
+        test_layout.addWidget(test_btn)
+
+        self._category_label = QLabel("")
+        self._category_label.setStyleSheet("color: #888; font-size: 11px;")
+        test_layout.addWidget(self._category_label)
+        test_layout.addStretch()
 
         test_group.setLayout(test_layout)
         layout.addWidget(test_group)
@@ -656,13 +671,11 @@ class WorkbenchWidget(QWidget):
         return f"{emoji} {name}  ({param})" if param else f"{emoji} {name}"
 
     def get_patch(self):
-        active_btn1 = self.wave1_btn_group.checkedId()
         wave1_types = ["sine", "square", "triangle", "sawtooth", "noise"]
-        w1 = wave1_types[active_btn1] if active_btn1 >= 0 else "square"
+        w1 = wave1_types[self.wave1_combo.currentIndex()]
         
-        active_btn2 = self.wave2_btn_group.checkedId()
         wave2_types = ["off", "sine", "square", "triangle", "sawtooth", "noise"]
-        w2 = wave2_types[active_btn2] if active_btn2 >= 0 else "off"
+        w2 = wave2_types[self.wave2_combo.currentIndex()]
         
         patch = {
             "wave_type": w1,
@@ -706,16 +719,16 @@ class WorkbenchWidget(QWidget):
         """Fully populates all Workbench controls from a patch dictionary."""
         self.slider_mix.blockSignals(True)
         
-        # --- 1. Wave Selectors ---
+        # --- 1. Wave Selectors (combo boxes) ---
+        wave1_types = ["sine", "square", "triangle", "sawtooth", "noise"]
         w1_type = patch_data.get("wave_type", "square").lower()
-        for btn in self.wave1_btn_group.buttons():
-            if btn.text().lower() == w1_type:
-                btn.setChecked(True)
+        if w1_type in wave1_types:
+            self.wave1_combo.setCurrentIndex(wave1_types.index(w1_type))
                 
+        wave2_types = ["off", "sine", "square", "triangle", "sawtooth", "noise"]
         w2_type = patch_data.get("wave_type_2", "off").lower()
-        for btn in self.wave2_btn_group.buttons():
-            if btn.text().lower() == w2_type:
-                btn.setChecked(True)
+        if w2_type in wave2_types:
+            self.wave2_combo.setCurrentIndex(wave2_types.index(w2_type))
                 
         self.slider_mix.setValue(int(patch_data.get("mix", 0.0) * 100))
         self.slider_mix.blockSignals(False)
@@ -742,7 +755,7 @@ class WorkbenchWidget(QWidget):
             if len(parts) >= 2 and parts[0] == "ENV":
                 self._sync_fx_to_generic("__env__", fx_item)
 
-        self._rebuild_rack_display()
+        self._rebuild_fx_slots()
         self.update_oscilloscope()
 
     def _set_generic_mod_sliders(self, win):
@@ -972,6 +985,72 @@ class WorkbenchWidget(QWidget):
                 self.preset_mgr.delete_instrument(safe_name, folder=folder)
                 del self.bank_data[key]
                 self._populate_bank_tree()
+    def _show_rack_add_menu(self):
+        """Shows a categorized dropdown menu to pick an FX to add."""
+        from PyQt6.QtWidgets import QMenu
+        from gui.fx_ui_manager import FX_CATALOG
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu { background-color: #2d2d30; color: #ccc; border: 1px solid #3f3f46; }
+            QMenu::item:selected { background-color: #007acc; }
+        """)
+        cats = {}
+        for code, info in FX_CATALOG.items():
+            if info.get("category") == "🏛 Master Mix":
+                continue
+            cat = info.get("category", "Other")
+            if cat not in cats:
+                cats[cat] = []
+            cats[cat].append((info["name"], code))
+
+        for cat, items in cats.items():
+            sub = menu.addMenu(cat)
+            for name, code in items:
+                action = sub.addAction(f"{name} ({code})")
+                action.triggered.connect(
+                    lambda checked, c=code: self._add_rack_slot(f"{c} 64"))
+
+        pos = self.btn_rack_add.mapToGlobal(self.btn_rack_add.rect().bottomLeft())
+        menu.exec(pos)
+
+    def _add_rack_slot(self, fx_string):
+        """Creates an FXSlotWidget for the given FX string and adds it to the scroll layout."""
+        from gui.visualizer import FXSlotWidget
+        slot = FXSlotWidget(fx_string, parent=self.rack_scroll_widget)
+        slot.remove_requested.connect(lambda: self._remove_rack_slot(slot))
+        slot.changed_signal.connect(self._save_rack_chain)
+        # Insert before the stretch at the end
+        idx = max(0, self.rack_scroll_layout.count() - 1)
+        self.rack_scroll_layout.insertWidget(idx, slot)
+        self._save_rack_chain()
+        self.update_oscilloscope()
+
+    def _remove_rack_slot(self, slot):
+        """Removes an FXSlotWidget from the rack."""
+        self.rack_scroll_layout.removeWidget(slot)
+        slot.deleteLater()
+        self._save_rack_chain()
+        self.update_oscilloscope()
+
+    def _save_rack_chain(self):
+        """Reads all FXSlotWidget values and saves to _rack_fx_chain."""
+        chain = []
+        for i in range(self.rack_scroll_layout.count() - 1):  # exclude stretch
+            item = self.rack_scroll_layout.itemAt(i)
+            if item and item.widget():
+                chain.append(item.widget().get_fx_string())
+        self._rack_fx_chain = chain
+
+    def _rebuild_fx_slots(self):
+        """Rebuilds FXSlotWidget instances from _rack_fx_chain."""
+        # Clear existing slots
+        while self.rack_scroll_layout.count() > 1:
+            item = self.rack_scroll_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        # Rebuild from chain
+        for fx_str in self._rack_fx_chain:
+            self._add_rack_slot(fx_str)
     def _open_fx_editor(self):
         """Opens the unified FX popup for experimentation (no cell target)."""
         def _on_apply(fx_string):
@@ -1043,9 +1122,38 @@ class WorkbenchWidget(QWidget):
         ],
     }
 
-    def play_test(self, category):
-        """Plays a category-appropriate test phrase and sets active_category."""
+    # Folder name → test category mapping
+    FOLDER_TO_CATEGORY = {
+        "bass":    "bass",
+        "leads":   "leads",
+        "pads":    "pads",
+        "keys":    "keys",
+        "drums":   "drums",
+        "strings": "pads",   # strings sound best with the pad demo
+    }
+
+    def _get_selected_category(self):
+        """Auto-detect the test category from the selected instrument's folder."""
+        item = self.bank_tree.currentItem()
+        if item is None:
+            return "leads"
+        key = item.data(0, Qt.ItemDataRole.UserRole)
+        if key and "/" in key:
+            folder = key.split("/")[0]
+            return self.FOLDER_TO_CATEGORY.get(folder, "leads")
+        return "leads"
+
+    def play_test(self, category=None):
+        """Plays a category-appropriate test phrase. Auto-detects category if not specified."""
+        if category is None:
+            category = self._get_selected_category()
         self.active_category = category
+        # Update label to show which demo is playing
+        label_map = {
+            "bass": "🎸 Bass", "leads": "🎹 Lead", "pads": "🌊 Pad",
+            "keys": "🎶 Arp", "drums": "🥁 Drums", "sfx": "⚡ SFX",
+        }
+        self._category_label.setText(label_map.get(category, category))
         melody = self.TEST_PATTERNS.get(category, self.TEST_PATTERNS["leads"])
         self._play_melody(melody)
 

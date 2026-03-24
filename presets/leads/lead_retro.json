@@ -1,0 +1,14 @@
+{
+    "name": "Retro Lead",
+    "wave_type": "square",
+    "bit_depth": 8,
+    "envelope": {
+        "attack": 0.0,
+        "decay": 0.03,
+        "sustain_level": 0.9,
+        "release": 0.05
+    },
+    "portamento": {
+        "slide_time": 0.04
+    }
+}

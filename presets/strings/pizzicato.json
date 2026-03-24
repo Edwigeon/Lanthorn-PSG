@@ -1,0 +1,12 @@
+{
+    "name": "Pizzicato",
+    "wave_type": "triangle",
+    "wave_type_2": "sawtooth",
+    "mix": 0.15,
+    "envelope": {
+        "attack": 0.0,
+        "decay": 0.12,
+        "sustain_level": 0.0,
+        "release": 0.08
+    }
+}

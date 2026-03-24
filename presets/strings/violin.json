@@ -1,0 +1,14 @@
+{
+    "name": "Violin",
+    "wave_type": "sawtooth",
+    "envelope": {
+        "attack": 0.15,
+        "decay": 0.1,
+        "sustain_level": 0.75,
+        "release": 0.35
+    },
+    "lfo": {
+        "vibrato_speed": 5.5,
+        "vibrato_depth": 0.35
+    }
+}

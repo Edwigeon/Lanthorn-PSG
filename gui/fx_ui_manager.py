@@ -193,15 +193,6 @@ FX_CATALOG = {
         "byte_label": "Cut Position  (0=Immediate → 255=Near End)",
         "presets": [("Quick", "32"), ("Half", "128"), ("Late", "192"), ("Near End", "240")],
     },
-    "PAN": {
-        "name": "Pan",
-        "category": "🔊 Dynamics",
-        "desc": "Stereo position",
-        "param_type": "byte",
-        "byte_label": "Stereo Position  (0=Left, 128=Center, 255=Right)",
-        "presets": [("Hard Left", "0"), ("Left", "64"), ("Center", "128"),
-                    ("Right", "192"), ("Hard Right", "255")],
-    },
     "RTG": {
         "name": "Retrigger",
         "category": "🔊 Dynamics",
@@ -341,10 +332,6 @@ def _generate_preview_waveform(code, p1, p2, p_full, n=200, adsr_s=None, adsr_r=
         y = np.zeros(n)
         if shift < n:
             y[shift:] = base[:n - shift] * 0.8
-    elif code == "PAN":
-        # Show L/R balance as two overlapping waves
-        pan = (p_full - 128) / 128.0
-        y = base * max(0.1, 1.0 - abs(pan))
     elif code == "ENV":
         # ADSR envelope shape
         a = max(0.01, p1 / 100.0)
@@ -439,6 +426,8 @@ class FXPopupWindow(QDialog):
         self.fx_combo = QComboBox()
         last_cat = None
         for code, info in FX_CATALOG.items():
+            if code == "ENV":  # ADSR is per-instrument, not a tracker FX
+                continue
             cat = info['category']
             if cat != last_cat:
                 self.fx_combo.addItem(f"── {cat} ──", None)  # separator
@@ -802,13 +791,6 @@ class FXPopupWindow(QDialog):
             semi = (p_full / 255.0) * 12.0
             self.context_label.setText(
                 f"Bend: {semi:.1f} semitones {'up' if code == 'SUP' else 'down'}")
-        elif code == "PAN":
-            if p_full < 120:
-                self.context_label.setText(f"Pan: Left {(128 - p_full) / 1.28:.0f}%")
-            elif p_full > 136:
-                self.context_label.setText(f"Pan: Right {(p_full - 128) / 1.27:.0f}%")
-            else:
-                self.context_label.setText("Pan: Center")
         elif code == "VMD":
             target_pct = p1 / 15.0 * 100
             slide_pct = p2 / 15.0 * 100

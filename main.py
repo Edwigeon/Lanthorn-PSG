@@ -17,6 +17,12 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
 
+    # Global font size for readability
+    from PyQt6.QtGui import QFont
+    app_font = QFont("Segoe UI", 10)
+    app_font.setStyleHint(QFont.StyleHint.SansSerif)
+    app.setFont(app_font)
+
     # Linux desktop integration
     app.setApplicationName("lanthornpsg")
     app.setDesktopFileName("lanthornpsg")

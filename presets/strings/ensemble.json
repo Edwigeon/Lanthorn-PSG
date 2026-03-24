@@ -1,0 +1,18 @@
+{
+    "name": "Ensemble",
+    "wave_type": "sawtooth",
+    "wave_type_2": "sawtooth",
+    "mix": 0.45,
+    "envelope": {
+        "attack": 0.4,
+        "decay": 0.1,
+        "sustain_level": 0.65,
+        "release": 0.6
+    },
+    "lfo": {
+        "vibrato_speed": 3.5,
+        "vibrato_depth": 0.2,
+        "tremolo_speed": 2.0,
+        "tremolo_depth": 0.1
+    }
+}

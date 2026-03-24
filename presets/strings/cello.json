@@ -1,0 +1,17 @@
+{
+    "name": "Cello",
+    "wave_type": "sawtooth",
+    "wave_type_2": "sine",
+    "mix": 0.35,
+    "envelope": {
+        "attack": 0.35,
+        "decay": 0.2,
+        "sustain_level": 0.6,
+        "release": 0.7
+    },
+    "lfo": {
+        "vibrato_speed": 4.0,
+        "vibrato_depth": 0.2
+    },
+    "saturation": 1.3
+}

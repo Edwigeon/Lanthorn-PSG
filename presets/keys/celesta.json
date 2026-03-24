@@ -1,0 +1,14 @@
+{
+    "name": "Celesta",
+    "wave_type": "sine",
+    "envelope": {
+        "attack": 0.0,
+        "decay": 0.5,
+        "sustain_level": 0.05,
+        "release": 0.3
+    },
+    "lfo": {
+        "tremolo_speed": 3.0,
+        "tremolo_depth": 0.15
+    }
+}

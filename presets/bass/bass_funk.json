@@ -1,0 +1,13 @@
+{
+    "name": "Funk Bass",
+    "wave_type": "square",
+    "wave_type_2": "sawtooth",
+    "mix": 0.25,
+    "saturation": 1.5,
+    "envelope": {
+        "attack": 0.0,
+        "decay": 0.08,
+        "sustain_level": 0.4,
+        "release": 0.06
+    }
+}

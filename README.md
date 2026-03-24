@@ -100,13 +100,15 @@ python main.py
 build.bat
 ```
 
-This will automatically:
-1. Install all Python dependencies
-2. Download a static **ffmpeg** build (for MP3 export)
-3. Build a standalone executable via PyInstaller
-4. Download **NSIS** (if needed) and create a Windows installer
+The script presents an interactive menu:
 
-Output: `LanthornPSG_Setup_0.3.3.exe`
+| Option | What it builds |
+|--------|----------------|
+| **1. Portable** | Single standalone `dist\LanthornPSG_Portable.exe` — run anywhere, no install needed |
+| **2. Installer** | NSIS setup wizard `LanthornPSG_Setup_0.3.3.exe` in the project root |
+| **3. Both** | Builds both of the above |
+
+All options automatically install Python dependencies, download **ffmpeg** (for MP3/OGG export), and clean up build artifacts when finished.
 
 ### Linux
 
@@ -115,7 +117,13 @@ chmod +x build.sh
 ./build.sh
 ```
 
-This will build a standalone binary, bundle all assets, and install a `.desktop` entry for your app launcher.
+The script presents the same interactive menu:
+
+| Option | What it builds |
+|--------|----------------|
+| **1. Portable** | Single standalone binary `dist/LanthornPSG_Portable` |
+| **2. Install** | Multi-file build in `dist/LanthornPSG/` with optional desktop integration (icon + `.desktop` entry) |
+| **3. Both** | Builds both of the above |
 
 ---
 
@@ -143,9 +151,10 @@ lanthorn_psg/
 ├── export/                   # Audio export
 │   └── wave_baker.py         #   WAV / OGG / MP3 rendering
 ├── presets/                  # Built-in instrument library
-├── build.bat                 # Windows build script
-├── build.sh                  # Linux build script
-├── lanthorn_psg.spec         # PyInstaller spec
+├── build.bat                 # Windows build script (interactive menu)
+├── build.sh                  # Linux build script (interactive menu)
+├── lanthorn_psg.spec         # PyInstaller spec (multi-file install build)
+├── lanthorn_psg_portable.spec # PyInstaller spec (single-file portable build)
 ├── lanthorn_installer.nsi    # NSIS Windows installer script
 └── ENGINE_SPEC.md            # Full engine & FX command reference
 ```

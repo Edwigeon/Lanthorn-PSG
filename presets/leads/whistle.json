@@ -1,0 +1,14 @@
+{
+    "name": "Whistle",
+    "wave_type": "sine",
+    "envelope": {
+        "attack": 0.12,
+        "decay": 0.0,
+        "sustain_level": 0.95,
+        "release": 0.08
+    },
+    "lfo": {
+        "vibrato_speed": 6.5,
+        "vibrato_depth": 0.5
+    }
+}

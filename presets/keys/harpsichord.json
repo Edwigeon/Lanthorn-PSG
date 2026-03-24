@@ -1,0 +1,13 @@
+{
+    "name": "Harpsichord",
+    "wave_type": "square",
+    "wave_type_2": "sawtooth",
+    "mix": 0.3,
+    "envelope": {
+        "attack": 0.0,
+        "decay": 0.3,
+        "sustain_level": 0.15,
+        "release": 0.2
+    },
+    "bit_depth": 10
+}

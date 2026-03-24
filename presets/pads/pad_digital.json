@@ -1,0 +1,17 @@
+{
+    "name": "Digital Pad",
+    "wave_type": "square",
+    "wave_type_2": "sawtooth",
+    "mix": 0.4,
+    "bit_depth": 10,
+    "envelope": {
+        "attack": 0.35,
+        "decay": 0.15,
+        "sustain_level": 0.55,
+        "release": 0.5
+    },
+    "lfo": {
+        "tremolo_speed": 2.5,
+        "tremolo_depth": 0.12
+    }
+}

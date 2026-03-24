@@ -1,0 +1,15 @@
+{
+    "name": "Cymbal",
+    "wave_type": "noise",
+    "envelope": {
+        "attack": 0.001,
+        "decay": 0.50,
+        "sustain_level": 0.1,
+        "release": 0.40
+    },
+    "bit_depth": 8,
+    "lfo": {
+        "tremolo_speed": 6.0,
+        "tremolo_depth": 0.15
+    }
+}

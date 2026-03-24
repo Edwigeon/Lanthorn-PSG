@@ -1,0 +1,16 @@
+{
+    "name": "Tom",
+    "wave_type": "sine",
+    "wave_type_2": "noise",
+    "mix": 0.05,
+    "saturation": 1.5,
+    "envelope": {
+        "attack": 0.001,
+        "decay": 0.22,
+        "sustain_level": 0.0,
+        "release": 0.08
+    },
+    "portamento": {
+        "slide_time": 0.03
+    }
+}

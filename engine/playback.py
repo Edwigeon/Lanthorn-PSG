@@ -252,10 +252,11 @@ class Sequencer:
 
                 elif cmd == "DLY":
                     delay_fraction = p_full / 255.0
-                    delay_samples = int(delay_fraction * len(combined_wave))
-                    if delay_samples > 0 and delay_samples < len(combined_wave):
+                    delay_samples = int(delay_fraction * len(combined_wave) * 0.5)
+                    if 0 < delay_samples < len(combined_wave):
                         shifted = np.zeros_like(combined_wave)
-                        shifted[delay_samples:] = combined_wave[:-delay_samples]
+                        remaining = len(combined_wave) - delay_samples
+                        shifted[delay_samples:] = combined_wave[:remaining]
                         combined_wave = shifted
 
                 elif cmd == "SAT":

@@ -1,0 +1,14 @@
+{
+    "name": "Rim Shot",
+    "wave_type": "square",
+    "wave_type_2": "noise",
+    "mix": 0.6,
+    "bit_depth": 8,
+    "saturation": 2.0,
+    "envelope": {
+        "attack": 0.0,
+        "decay": 0.03,
+        "sustain_level": 0.0,
+        "release": 0.01
+    }
+}
